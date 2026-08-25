@@ -71,10 +71,14 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
         for x, y in train_loader:
             x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            
-            with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
+
+            if t_cfg.device == "mps":
                 logits = model(x)
                 loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+            else:
+                with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
+                    logits = model(x)
+                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
                 
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
