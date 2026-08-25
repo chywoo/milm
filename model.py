@@ -19,24 +19,27 @@ class CausalSelfAttention(nn.Module):
         self.dropout = cfg.dropout
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, T, C = x.shape
+        B, T, C = x.shape       # 32, 128, 256
         
         # (B, T, 3 * d_model) -> 3개의 (B, num_heads, T, head_dim)
-        qkv = self.c_attn(x)
-        q, k, v = qkv.chunk(3, dim=-1)
-        
+        qkv = self.c_attn(x)    # qkv.shape = (32, 128, 768)
+        q, k, v = qkv.chunk(3, dim=-1) # each shape = (32, 128, 256)
+
+        # reshape to (32, 128, 8, 32) and transpose to (32, 8, 128, 32)
         q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
         # PyTorch 내부 최적화 C++ 커널 호출 (FlashAttention/Mem-Efficient)
+        # out.shape = (32,8,128,32)
         out = F.scaled_dot_product_attention(
             q, k, v, 
             dropout_p=self.dropout if self.training else 0.0, 
             is_causal=True
         )
-        
-        out = out.transpose(1, 2).contiguous().view(B, T, C)
+
+        # restore dimension to x.shape
+        out = out.transpose(1, 2).contiguous().view(B, T, C)     # out.shape=(32,128,256)
         return self.out_proj(out)
 
 class FeedForward(nn.Module):
