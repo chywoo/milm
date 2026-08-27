@@ -20,8 +20,8 @@ class TrainConfig:
     checkpoint_dir: str = "checkpoints"
     checkpoint_name: str = "best_model.pt"
     
-    batch_size: int = 32
-    epochs: int = 100
+    batch_size: int = 64
+    epochs: int = 10
     learning_rate: float = 5e-4
     min_lr: float = 5e-5
     warmup_steps: int = 100

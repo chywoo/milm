@@ -43,6 +43,7 @@ wheels/
 *.log
 runs/
 wandb/
+TRAINING_REPORT.md
 
 # IDE & OS specific files
 .DS_Store
@@ -57,3 +58,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+*.nsys-rep
+
+# Data
+data/
+checkpoints/
