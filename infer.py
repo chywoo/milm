@@ -8,8 +8,15 @@ from dataset import CharTokenizer
 
 class LLMInferenceEngine:
     """안전한 샘플링과 디코딩을 지원하는 추론 파이프라인"""
-    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = "cuda"):
-        self.device = device if torch.cuda.is_available() and device == "cuda" else "cpu"
+    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = None):
+        if device is not None:
+            self.device = device
+        elif torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         
         # 토크나이저 및 가중치 복원
         self.tokenizer = CharTokenizer.load(tokenizer_path)

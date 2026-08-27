@@ -61,9 +61,10 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     criterion = nn.CrossEntropyLoss()
 
     best_val_loss = float('inf')
+    device_type = t_cfg.device if t_cfg.device in ("cuda", "mps", "cpu") else "cpu"
 
     # 3. 학습 루프
-    logging.info("🚀 모델 학습 시작")
+    logging.info(f"🚀 모델 학습 시작 (디바이스: {t_cfg.device})")
     for epoch in range(1, t_cfg.epochs + 1):
         with nvtx.range(f"Epoch_{epoch}"):
             model.train()
@@ -73,19 +74,20 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
             for step, (x, y) in enumerate(train_loader):
                 with nvtx.range(f"Train_Step_{step}"):
                     with nvtx.range("H2D_Transfer"):
-                        x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
+                        x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                        y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                     
                     optimizer.zero_grad(set_to_none=True)
 
                     with nvtx.range("Forward_Pass"):
-                        if t_cfg.device == "mps":
+                        with torch.autocast(
+                            device_type=device_type, 
+                            dtype=torch.float16, 
+                            enabled=t_cfg.use_amp and device_type in ("cuda", "mps")
+                        ):
                             logits = model(x)
-                            loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                        else:
-                            with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
-                                logits = model(x)
-                                with nvtx.range("Loss_Calculation"):
-                                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                            with nvtx.range("Loss_Calculation"):
+                                loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
                         
                     with nvtx.range("Backward_Pass"):
                         scaler.scale(loss).backward()
@@ -107,8 +109,13 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
                     for val_step, (x, y) in enumerate(val_loader):
                         with nvtx.range(f"Val_Step_{val_step}"):
                             with nvtx.range("Val_H2D_Transfer"):
-                                x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
-                            with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
+                                x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                                y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                            with torch.autocast(
+                                device_type=device_type, 
+                                dtype=torch.float16, 
+                                enabled=t_cfg.use_amp and device_type in ("cuda", "mps")
+                            ):
                                 logits = model(x)
                                 loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
                             val_loss += loss.item()

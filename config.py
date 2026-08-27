@@ -28,7 +28,7 @@ class TrainConfig:
     weight_decay: float = 0.01
     grad_clip: float = 1.0        # 기울기 폭주 방지 클리핑
     
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+    device: str = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
     use_amp: bool = True          # Automatic Mixed Precision 활성화
-    compile_model: bool = True    # PyTorch 2.0+ torch.compile 활성화
+    compile_model: bool = True    # PyTorch 2.0+ torch.compile 활성화 (CUDA 전용)
     val_split: float = 0.1   # 검증 데이터셋 비율

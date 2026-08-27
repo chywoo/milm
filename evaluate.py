@@ -84,8 +84,8 @@ def compute_rouge_l(reference: str, candidate: str) -> float:
 # 2. 🧪 평가 엔진 클래스
 # =====================================================================
 class LLMEvaluator:
-    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = "cuda"):
-        self.device = device if torch.cuda.is_available() and device == "cuda" else "cpu"
+    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = "cpu"):
+        self.device = device 
         
         # 토크나이저 및 모델 체크포인트 복원
         self.tokenizer = CharTokenizer.load(tokenizer_path)
@@ -205,12 +205,13 @@ class LLMEvaluator:
 if __name__ == "__main__":
     ckpt_path = "checkpoints/best_model.pt"
     tok_path = "checkpoints/tokenizer.json"
+    train_config = TrainConfig()
     
     if not (os.path.exists(ckpt_path) and os.path.exists(tok_path)):
         print("❌ 모델 체크포인트 또는 토크나이저 파일이 존재하지 않습니다. train.py를 먼저 실행하세요.")
         exit(1)
 
-    evaluator = LLMEvaluator(checkpoint_path=ckpt_path, tokenizer_path=tok_path)
+    evaluator = LLMEvaluator(checkpoint_path=ckpt_path, tokenizer_path=tok_path, device=train_config.device)
     
     print("\n==========================================")
     print(" 📊 1. Perplexity (PPL) 정량 평가")
