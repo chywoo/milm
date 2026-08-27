@@ -4,6 +4,7 @@ import math
 import logging
 import torch
 import torch.nn as nn
+import torch.cuda.nvtx as nvtx
 from config import ModelConfig, TrainConfig
 from model import MiniLLM
 from dataset import create_dataloaders
@@ -64,64 +65,77 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     # 3. 학습 루프
     logging.info("🚀 모델 학습 시작")
     for epoch in range(1, t_cfg.epochs + 1):
-        model.train()
-        train_loss = 0.0
-        start_time = time.time()
-        
-        for x, y in train_loader:
-            x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
-            optimizer.zero_grad(set_to_none=True)
-
-            if t_cfg.device == "mps":
-                logits = model(x)
-                loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-            else:
-                with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
-                    logits = model(x)
-                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), t_cfg.grad_clip)
+        with nvtx.range(f"Epoch_{epoch}"):
+            model.train()
+            train_loss = 0.0
+            start_time = time.time()
             
-            scaler.step(optimizer)
-            scaler.update()
-            scheduler.step()
-            train_loss += loss.item()
+            for step, (x, y) in enumerate(train_loader):
+                with nvtx.range(f"Train_Step_{step}"):
+                    with nvtx.range("H2D_Transfer"):
+                        x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
+                    
+                    optimizer.zero_grad(set_to_none=True)
 
-        # 검증 루프
-        model.eval()
-        val_loss = 0.0
-        with torch.no_grad():
-            for x, y in val_loader:
-                x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
-                with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
-                    logits = model(x)
-                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                val_loss += loss.item()
-                
-        avg_train_loss = train_loss / len(train_loader)
-        avg_val_loss = val_loss / max(1, len(val_loader))
-        elapsed = time.time() - start_time
-        
-        if epoch % 10 == 0 or epoch == 1:
-            logging.info(
-                f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
-                f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
-                f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
-            )
+                    with nvtx.range("Forward_Pass"):
+                        if t_cfg.device == "mps":
+                            logits = model(x)
+                            loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                        else:
+                            with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
+                                logits = model(x)
+                                with nvtx.range("Loss_Calculation"):
+                                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                        
+                    with nvtx.range("Backward_Pass"):
+                        scaler.scale(loss).backward()
 
-        # 최고 성능 모델 체크포인트 저장
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-            ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
-            torch.save({
-                'model_state_dict': raw_model.state_dict(),
-                'model_config': m_cfg,
-                'epoch': epoch,
-                'val_loss': best_val_loss
-            }, ckpt_path)
+                    with nvtx.range("Optimizer_Step"):
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), t_cfg.grad_clip)
+                        scaler.step(optimizer)
+                        scaler.update()
+                        scheduler.step()
+
+                    train_loss += loss.item()
+
+            # 검증 루프
+            with nvtx.range("Validation_Epoch"):
+                model.eval()
+                val_loss = 0.0
+                with torch.no_grad():
+                    for val_step, (x, y) in enumerate(val_loader):
+                        with nvtx.range(f"Val_Step_{val_step}"):
+                            with nvtx.range("Val_H2D_Transfer"):
+                                x, y = x.to(t_cfg.device, non_blocking=True), y.to(t_cfg.device, non_blocking=True)
+                            with torch.autocast(device_type=t_cfg.device, dtype=torch.float16, enabled=t_cfg.use_amp):
+                                logits = model(x)
+                                loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                            val_loss += loss.item()
+                    
+            avg_train_loss = train_loss / len(train_loader)
+            avg_val_loss = val_loss / max(1, len(val_loader))
+            elapsed = time.time() - start_time
+            
+            if epoch % 10 == 0 or epoch == 1:
+                logging.info(
+                    f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
+                    f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
+                    f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
+                )
+
+            # 최고 성능 모델 체크포인트 저장
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                with nvtx.range("Save_Checkpoint"):
+                    raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+                    ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
+                    torch.save({
+                        'model_state_dict': raw_model.state_dict(),
+                        'model_config': m_cfg,
+                        'epoch': epoch,
+                        'val_loss': best_val_loss
+                    }, ckpt_path)
 
     logging.info(f"✅ 학습 완료! 최적 모델 저장 위치: {ckpt_path}")
 

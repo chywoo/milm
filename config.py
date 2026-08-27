@@ -10,8 +10,8 @@ class ModelConfig:
     d_model: int = 256            # 임베딩 및 히든 차원
     num_heads: int = 8            # Multi-Head 수
     num_layers: int = 6           # 트랜스포머 블록 레이어 수
-    d_ff: int = 1024              # FFN 내부 확장 차원 (일반적으로 4 * d_model)
-    dropout: float = 0.1          # 드롭아웃 비율
+    d_ff: int = 1024              # FFN 내부 확장 차원 (일반적으로 4 * d_model). 논문에서는 2048
+    dropout: float = 0.1     # 드롭아웃 비율
 
 @dataclass
 class TrainConfig:
@@ -31,4 +31,4 @@ class TrainConfig:
     device: str = "cuda" if torch.cuda.is_available() else "cpu"
     use_amp: bool = True          # Automatic Mixed Precision 활성화
     compile_model: bool = True    # PyTorch 2.0+ torch.compile 활성화
-    val_split: float = 0.1        # 검증 데이터셋 비율
+    val_split: float = 0.1   # 검증 데이터셋 비율

@@ -105,3 +105,77 @@ weight_decay  = 0.01
 grad_clip     = 1.0
 use_amp       = True
 ```
+
+---
+
+## ⚡ NVIDIA 프로파일링 (NVIDIA NVTX & Nsight Profiling)
+
+코드베이스 전반에 **NVIDIA Tools Extension (NVTX)** 마커가 내장되어 있어, **NVIDIA Nsight Systems (`nsys`)** 및 **Nsight Compute (`ncu`)**를 사용하여 CUDA 커널 연산, H2D/D2H 메모리 복사 병목, 레이어별 연산 소요 시간을 시각적으로 정밀 분석할 수 있습니다.
+
+### 1. NVTX 계층 구조 (NVTX Range Hierarchy)
+
+* **모델 아키텍처 (`model.py`)**:
+  * `MiniLLM::forward`
+    * `Embedding_PosEncoding`: 임베딩 및 Positional Encoding 연산
+    * `Block_{0..N}`: 각 트랜스포머 블록 레이어
+      * `PreLN1_SelfAttention` -> `CausalSelfAttention` (`QKV_Projection`, `QKV_Reshape`, `FlashAttention_SDPA`, `Out_Projection`)
+      * `PreLN2_FeedForward` -> `FeedForward`
+    * `Final_LayerNorm`: 최종 레이어 정규화
+    * `LM_Head`: 최종 로짓 프로젝션
+* **학습 파이프라인 (`train.py`)**:
+  * `Epoch_{i}` -> `Train_Step_{step}`
+    * `H2D_Transfer`: CPU to GPU 텐서 전송
+    * `Forward_Pass` / `Loss_Calculation`
+    * `Backward_Pass`: 역전파 기울기 계산
+    * `Optimizer_Step`: Grad Scaler 언스케일링, Gradient Clipping 및 가중치 업데이트
+  * `Validation_Epoch` -> `Val_Step_{step}` (`Val_H2D_Transfer`, Forward)
+  * `Save_Checkpoint`: 모델 가중치 직렬화
+* **추론 및 평가 (`infer.py`, `evaluate.py`)**:
+  * `LLM_Generate` -> `Generate_Step_{step}` (`Model_Forward`, `Repetition_Penalty`, `Sampling_TopK_TopP`)
+  * `Eval::Perplexity`, `Eval::Similarity`, `Eval::Benchmark_Suite`
+
+---
+
+### 2. 프로파일링 실행 방법
+
+#### 🔹 NVIDIA Nsight Systems (`nsys`) 프로파일링
+전체 시스템 타임라인(CUDA 커널, NVTX 범위, 메모리 복사, CPU OS 런타임)을 프로파일링합니다.
+
+```bash
+# 1. 학습 루프 프로파일링
+nsys profile \
+  -t cuda,nvtx,osrt \
+  -s cpu \
+  --output=profile_train \
+  --export=sqlite \
+  python train.py
+
+# 2. 추론 파이프라인 프로파일링
+nsys profile \
+  -t cuda,nvtx,osrt \
+  --output=profile_infer \
+  python infer.py
+
+# 3. 특정 NVTX 범위(예: 1번 에포크)만 타겟팅하여 캡처
+nsys profile \
+  -t cuda,nvtx \
+  -c nvtx \
+  -p "Epoch_1@*" \
+  --output=profile_epoch1 \
+  python train.py
+```
+
+#### 🔹 NVIDIA Nsight Compute (`ncu`) 커널 정밀 분석
+특정 NVTX 범위 내의 GPU 커널(예: FlashAttention / SDPA) 성능 및 메모리 대역폭을 상세 분석합니다.
+
+```bash
+# FlashAttention SDPA 커널 정밀 분석
+ncu --nvtx --nvtx-include "FlashAttention_SDPA" \
+  --set full \
+  -o profile_sdpa_kernel \
+  python train.py
+```
+
+#### 🔹 결과 시각화 (GUI)
+1. 생성된 `profile_train.nsys-rep` 파일을 로컬 머신으로 다운로드합니다.
+2. **NVIDIA Nsight Systems GUI** 애플리케이션에서 열어 `NVTX` 타임라인 레인을 확장하면 계층별 실행 시간과 GPU 병목 구간을 확인할 수 있습니다.

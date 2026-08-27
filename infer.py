@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn.functional as F
+import torch.cuda.nvtx as nvtx
 from config import ModelConfig
 from model import MiniLLM
 from dataset import CharTokenizer
@@ -30,49 +31,54 @@ class LLMInferenceEngine:
         repetition_penalty: float = 1.1
     ) -> str:
         """Top-k, Top-p(Nucleus), 반복 패널티가 적용된 자동회귀 생성"""
-        tokens = self.tokenizer.encode(prompt)
-        input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
+        with nvtx.range("LLM_Generate"):
+            tokens = self.tokenizer.encode(prompt)
+            input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
 
-        for _ in range(max_new_tokens):
-            # 문맥 크기 유지
-            cond_input = input_ids[:, -self.cfg.seq_len:]
-            
-            logits = self.model(cond_input)[:, -1, :] # 마지막 위치 토큰 로짓
+            for step in range(max_new_tokens):
+                with nvtx.range(f"Generate_Step_{step}"):
+                    # 문맥 크기 유지
+                    cond_input = input_ids[:, -self.cfg.seq_len:]
+                    
+                    with nvtx.range("Model_Forward"):
+                        logits = self.model(cond_input)[:, -1, :] # 마지막 위치 토큰 로짓
 
-            # 1. 반복 페널티 적용 (Repetition Penalty)
-            for token_id in set(input_ids[0].tolist()):
-                if logits[0, token_id] > 0:
-                    logits[0, token_id] /= repetition_penalty
-                else:
-                    logits[0, token_id] *= repetition_penalty
+                    with nvtx.range("Repetition_Penalty"):
+                        # 1. 반복 페널티 적용 (Repetition Penalty)
+                        for token_id in set(input_ids[0].tolist()):
+                            if logits[0, token_id] > 0:
+                                logits[0, token_id] /= repetition_penalty
+                            else:
+                                logits[0, token_id] *= repetition_penalty
 
-            # 2. 온도 조절 (Temperature)
-            logits = logits / max(temperature, 1e-5)
+                    with nvtx.range("Sampling_TopK_TopP"):
+                        # 2. 온도 조절 (Temperature)
+                        logits = logits / max(temperature, 1e-5)
 
-            # 3. Top-k 필터링
-            if top_k > 0:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = float('-inf')
+                        # 3. Top-k 필터링
+                        if top_k > 0:
+                            v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                            logits[logits < v[:, [-1]]] = float('-inf')
 
-            # 4. Top-p (Nucleus) 필터링
-            if top_p < 1.0:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-                
-                sorted_indices_to_remove = cumulative_probs > top_p
-                # 첫 번째 유효 토큰은 유지
-                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                sorted_indices_to_remove[..., 0] = 0
-                
-                indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                logits[indices_to_remove] = float('-inf')
+                        # 4. Top-p (Nucleus) 필터링
+                        if top_p < 1.0:
+                            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                            
+                            sorted_indices_to_remove = cumulative_probs > top_p
+                            # 첫 번째 유효 토큰은 유지
+                            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                            sorted_indices_to_remove[..., 0] = 0
+                            
+                            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                            logits[indices_to_remove] = float('-inf')
 
-            # 5. 샘플링 및 토큰 결합
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-            input_ids = torch.cat((input_ids, next_token), dim=1)
+                        # 5. 샘플링 및 토큰 결합
+                        probs = F.softmax(logits, dim=-1)
+                        next_token = torch.multinomial(probs, num_samples=1)
+                        input_ids = torch.cat((input_ids, next_token), dim=1)
 
-        return self.tokenizer.decode(input_ids[0].tolist())
+            return self.tokenizer.decode(input_ids[0].tolist())
 
 if __name__ == "__main__":
     ckpt = "checkpoints/best_model.pt"

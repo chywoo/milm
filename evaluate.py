@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+import torch.cuda.nvtx as nvtx
 
 from config import ModelConfig, TrainConfig
 from model import MiniLLM
@@ -101,26 +102,28 @@ class LLMEvaluator:
     @torch.no_grad()
     def evaluate_perplexity(self, test_text: str, batch_size: int = 32) -> Tuple[float, float]:
         """테스트 데이터셋에 대한 평균 Cross-Entropy Loss 및 Perplexity 계산"""
-        token_ids = self.tokenizer.encode(test_text)
-        test_ds = TextDataset(token_ids, self.cfg.seq_len)
-        
-        if len(test_ds) == 0:
-            raise ValueError("테스트 텍스트가 시퀀스 길이(seq_len)보다 짧습니다.")
+        with nvtx.range("Eval::Perplexity"):
+            token_ids = self.tokenizer.encode(test_text)
+            test_ds = TextDataset(token_ids, self.cfg.seq_len)
             
-        test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
-        criterion = nn.CrossEntropyLoss()
-        
-        total_loss = 0.0
-        for x, y in test_loader:
-            x, y = x.to(self.device), y.to(self.device)
-            with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=(self.device == "cuda")):
-                logits = self.model(x)
-                loss = criterion(logits.view(-1, self.cfg.vocab_size), y.view(-1))
-            total_loss += loss.item()
+            if len(test_ds) == 0:
+                raise ValueError("테스트 텍스트가 시퀀스 길이(seq_len)보다 짧습니다.")
+                
+            test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
+            criterion = nn.CrossEntropyLoss()
             
-        avg_loss = total_loss / len(test_loader)
-        perplexity = math.exp(avg_loss)
-        return avg_loss, perplexity
+            total_loss = 0.0
+            for step, (x, y) in enumerate(test_loader):
+                with nvtx.range(f"Eval_Batch_{step}"):
+                    x, y = x.to(self.device), y.to(self.device)
+                    with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=(self.device == "cuda")):
+                        logits = self.model(x)
+                        loss = criterion(logits.view(-1, self.cfg.vocab_size), y.view(-1))
+                    total_loss += loss.item()
+                
+            avg_loss = total_loss / len(test_loader)
+            perplexity = math.exp(avg_loss)
+            return avg_loss, perplexity
 
     # -------------------------------------------------------------
     # 🎯 평가 2: N-gram 정밀도 및 텍스트 유사도 (BLEU & ROUGE)
@@ -128,18 +131,20 @@ class LLMEvaluator:
     @torch.no_grad()
     def evaluate_similarity_metrics(self, test_pairs: List[Tuple[str, str]]) -> Dict[str, float]:
         """(프롬프트, 정답 타깃) 쌍을 바탕으로 생성 문장의 BLEU 및 ROUGE 점수 측정"""
-        bleu_scores = []
-        rouge_scores = []
-        
-        for prompt, target in test_pairs:
-            generated = self._generate_completion(prompt, max_new_tokens=len(target))
-            bleu_scores.append(compute_bleu(target, generated))
-            rouge_scores.append(compute_rouge_l(target, generated))
+        with nvtx.range("Eval::Similarity"):
+            bleu_scores = []
+            rouge_scores = []
             
-        avg_bleu = sum(bleu_scores) / len(bleu_scores) if bleu_scores else 0.0
-        avg_rouge = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
-        
-        return {"BLEU": avg_bleu, "ROUGE-L": avg_rouge}
+            for i, (prompt, target) in enumerate(test_pairs):
+                with nvtx.range(f"Eval_Pair_{i}"):
+                    generated = self._generate_completion(prompt, max_new_tokens=len(target))
+                    bleu_scores.append(compute_bleu(target, generated))
+                    rouge_scores.append(compute_rouge_l(target, generated))
+                
+            avg_bleu = sum(bleu_scores) / len(bleu_scores) if bleu_scores else 0.0
+            avg_rouge = sum(rouge_scores) / len(rouge_scores) if rouge_scores else 0.0
+            
+            return {"BLEU": avg_bleu, "ROUGE-L": avg_rouge}
 
     # -------------------------------------------------------------
     # 🧪 평가 3: 프롬프트 벤치마크 테스트베드 (Evaluation Harness)
@@ -147,38 +152,42 @@ class LLMEvaluator:
     @torch.no_grad()
     def run_benchmark_suite(self, test_prompts: List[str], temperatures: List[float] = [0.2, 0.7, 1.2]) -> List[Dict]:
         """다양한 온도(Temperature) 조건에서 벤치마크 프롬프트 생성 결과 및 반복률 측정"""
-        results = []
-        
-        for prompt in test_prompts:
-            prompt_results = {"prompt": prompt, "generations": {}}
-            for temp in temperatures:
-                output = self._generate_completion(prompt, max_new_tokens=100, temperature=temp)
-                repetition_rate = self._compute_repetition_rate(output)
-                prompt_results["generations"][f"temp_{temp}"] = {
-                    "text": output,
-                    "repetition_rate": repetition_rate
-                }
-            results.append(prompt_results)
+        with nvtx.range("Eval::Benchmark_Suite"):
+            results = []
             
-        return results
+            for i, prompt in enumerate(test_prompts):
+                with nvtx.range(f"Prompt_Benchmark_{i}"):
+                    prompt_results = {"prompt": prompt, "generations": {}}
+                    for temp in temperatures:
+                        with nvtx.range(f"Temp_{temp}"):
+                            output = self._generate_completion(prompt, max_new_tokens=100, temperature=temp)
+                            repetition_rate = self._compute_repetition_rate(output)
+                            prompt_results["generations"][f"temp_{temp}"] = {
+                                "text": output,
+                                "repetition_rate": repetition_rate
+                            }
+                    results.append(prompt_results)
+                
+            return results
 
     def _generate_completion(self, prompt: str, max_new_tokens: int, temperature: float = 0.7) -> str:
         """기본 자동회귀 텍스트 생성 보조 함수"""
-        tokens = self.tokenizer.encode(prompt)
-        input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
-        
-        for _ in range(max_new_tokens):
-            cond_input = input_ids[:, -self.cfg.seq_len:]
-            with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=(self.device == "cuda")):
-                logits = self.model(cond_input)[:, -1, :]
+        with nvtx.range("Generate_Completion"):
+            tokens = self.tokenizer.encode(prompt)
+            input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
             
-            logits = logits / max(temperature, 1e-5)
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-            input_ids = torch.cat((input_ids, next_token), dim=1)
-            
-        # 생성된 부분만 반환
-        return self.tokenizer.decode(input_ids[0, len(tokens):].tolist())
+            for _ in range(max_new_tokens):
+                cond_input = input_ids[:, -self.cfg.seq_len:]
+                with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=(self.device == "cuda")):
+                    logits = self.model(cond_input)[:, -1, :]
+                
+                logits = logits / max(temperature, 1e-5)
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+                input_ids = torch.cat((input_ids, next_token), dim=1)
+                
+            # 생성된 부분만 반환
+            return self.tokenizer.decode(input_ids[0, len(tokens):].tolist())
 
     def _compute_repetition_rate(self, text: str, n: int = 3) -> float:
         """생성된 문장의 3-gram 반복 비율 계산 (0에 가까울수록 풍부한 표현)"""
