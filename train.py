@@ -57,7 +57,7 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     
     total_steps = len(train_loader) * t_cfg.epochs
     scheduler = get_lr_scheduler(optimizer, t_cfg.warmup_steps, total_steps, t_cfg.learning_rate, t_cfg.min_lr)
-    scaler = torch.cuda.amp.GradScaler(enabled=t_cfg.use_amp and t_cfg.device == "cuda")
+    scaler = torch.amp.GradScaler("cuda", enabled=t_cfg.use_amp and t_cfg.device == "cuda")
     criterion = nn.CrossEntropyLoss()
 
     best_val_loss = float('inf')
