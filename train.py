@@ -1,4 +1,5 @@
 import os
+import glob
 import time
 import math
 import logging
@@ -28,15 +29,24 @@ def get_lr_scheduler(optimizer, warmup_steps, total_steps, max_lr, min_lr):
 def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     os.makedirs(t_cfg.checkpoint_dir, exist_ok=True)
     
-    # 1. 예제 데이터 준비 (실제 환경에서는 텍스트 파일 로드)
-    sample_text = (
-        "The artificial intelligence and transformer architecture revolutionized natural language processing. "
-        "Self-attention allows the model to weigh the importance of different tokens dynamically. "
-        "Residual connections and layer normalization stabilize deep neural network training. "
-    ) * 200  # 실습용 반복 텍스트
+    # 1. 텍스트 데이터 로드 (데이터 디렉토리 내의 모든 .txt 파일 로드)
+    if not os.path.exists(t_cfg.data_dir):
+        raise FileNotFoundError(f"데이터 디렉토리를 찾을 수 없습니다: '{t_cfg.data_dir}'. config.py의 data_dir을 확인하세요.")
+
+    txt_files = sorted(glob.glob(os.path.join(t_cfg.data_dir, "**", "*.txt"), recursive=True))
+    if not txt_files:
+        raise FileNotFoundError(f"'{t_cfg.data_dir}' 디렉토리 내에 .txt 파일이 존재하지 않습니다.")
+
+    text_list = []
+    for fpath in txt_files:
+        with open(fpath, "r", encoding="utf-8") as f:
+            text_list.append(f.read())
+    
+    text = "\n".join(text_list)
+    logging.info(f"데이터 로드 완료: '{t_cfg.data_dir}' 내 총 {len(txt_files)}개 .txt 파일 (총 {len(text):,} 글자)")
     
     train_loader, val_loader, tokenizer = create_dataloaders(
-        sample_text, m_cfg.seq_len, t_cfg.batch_size, t_cfg.val_split
+        text, m_cfg.seq_len, t_cfg.batch_size, t_cfg.val_split
     )
     m_cfg.vocab_size = tokenizer.vocab_size
     tokenizer.save(os.path.join(t_cfg.checkpoint_dir, "tokenizer.json"))

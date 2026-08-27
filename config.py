@@ -16,7 +16,7 @@ class ModelConfig:
 @dataclass
 class TrainConfig:
     """학습 및 인프라 최적화 설정"""
-    data_path: str = "data/input.txt"
+    data_dir: str = "data"        # 훈련 텍스트 파일들이 위치한 디렉토리
     checkpoint_dir: str = "checkpoints"
     checkpoint_name: str = "best_model.pt"
     
