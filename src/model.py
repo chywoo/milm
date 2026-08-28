@@ -2,7 +2,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.cuda.nvtx as nvtx
-from config import ModelConfig
+
+try:
+    from .config import ModelConfig
+except (ImportError, ValueError):
+    from config import ModelConfig
 
 class CausalSelfAttention(nn.Module):
     """하드웨어 가속(FlashAttention) 기반 Multi-Head Attention"""
@@ -36,7 +40,6 @@ class CausalSelfAttention(nn.Module):
 
             with nvtx.range("FlashAttention_SDPA"):
                 # PyTorch 내부 최적화 C++ 커널 호출 (FlashAttention/Mem-Efficient)
-                # out.shape = (32,8,128,32)
                 out = F.scaled_dot_product_attention(
                     q, k, v, 
                     dropout_p=self.dropout if self.training else 0.0, 
@@ -130,3 +133,4 @@ class MiniLLM(nn.Module):
                 logits = self.lm_head(x)
 
             return logits
+

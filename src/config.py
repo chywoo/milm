@@ -146,3 +146,4 @@ def save_config(m_cfg: ModelConfig, t_cfg: TrainConfig, config_path: str = "conf
     }
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+

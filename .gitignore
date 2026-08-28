@@ -44,6 +44,7 @@ wheels/
 runs/
 wandb/
 TRAINING_REPORT.md
+docs/TRAINING_REPORT.md
 
 # IDE & OS specific files
 .DS_Store

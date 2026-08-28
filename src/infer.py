@@ -1,19 +1,26 @@
 import os
+from typing import Optional
 import torch
 import torch.nn.functional as F
 import torch.cuda.nvtx as nvtx
-from config import ModelConfig
-from model import MiniLLM
-from dataset import CharTokenizer
+
+try:
+    from .config import ModelConfig
+    from .model import MiniLLM
+    from .dataset import CharTokenizer
+except (ImportError, ValueError):
+    from config import ModelConfig
+    from model import MiniLLM
+    from dataset import CharTokenizer
 
 class LLMInferenceEngine:
     """안전한 샘플링과 디코딩을 지원하는 추론 파이프라인"""
-    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = None):
+    def __init__(self, checkpoint_path: str, tokenizer_path: str, device: Optional[str] = None):
         if device is not None:
             self.device = device
         elif torch.cuda.is_available():
             self.device = "cuda"
-        elif torch.backends.mps.is_available():
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             self.device = "mps"
         else:
             self.device = "cpu"
@@ -95,7 +102,8 @@ if __name__ == "__main__":
         engine = LLMInferenceEngine(checkpoint_path=ckpt, tokenizer_path=tok)
         prompt_text = "The artificial "
         result = engine.generate(prompt=prompt_text, temperature=0.7, top_k=5, top_p=0.9)
-        print("\n--- 🎯 추론 결과 ---")
+        print("\n--- 추론 결과 ---")
         print(result)
     else:
         print("체크포인트 파일이 존재하지 않습니다. 먼저 train.py를 실행하세요.")
+

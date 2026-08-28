@@ -6,9 +6,15 @@ import logging
 import torch
 import torch.nn as nn
 import torch.cuda.nvtx as nvtx
-from config import ModelConfig, TrainConfig
-from model import MiniLLM
-from dataset import create_dataloaders
+
+try:
+    from .config import ModelConfig, TrainConfig, load_config
+    from .model import MiniLLM
+    from .dataset import create_dataloaders
+except (ImportError, ValueError):
+    from config import ModelConfig, TrainConfig, load_config
+    from model import MiniLLM
+    from dataset import create_dataloaders
 
 # 표준 로깅 설정
 logging.basicConfig(
@@ -31,7 +37,7 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     
     # 1. 텍스트 데이터 로드 (데이터 디렉토리 내의 모든 .txt 파일 로드)
     if not os.path.exists(t_cfg.data_dir):
-        raise FileNotFoundError(f"데이터 디렉토리를 찾을 수 없습니다: '{t_cfg.data_dir}'. config.py의 data_dir을 확인하세요.")
+        raise FileNotFoundError(f"데이터 디렉토리를 찾을 수 없습니다: '{t_cfg.data_dir}'. config.yaml의 data_dir을 확인하세요.")
 
     txt_files = sorted(glob.glob(os.path.join(t_cfg.data_dir, "**", "*.txt"), recursive=True))
     if not txt_files:
@@ -74,7 +80,7 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     device_type = t_cfg.device if t_cfg.device in ("cuda", "mps", "cpu") else "cpu"
 
     # 3. 학습 루프
-    logging.info(f"🚀 모델 학습 시작 (디바이스: {t_cfg.device})")
+    logging.info(f"모델 학습 시작 (디바이스: {t_cfg.device})")
     for epoch in range(1, t_cfg.epochs + 1):
         with nvtx.range(f"Epoch_{epoch}"):
             model.train()
@@ -154,7 +160,9 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
                         'val_loss': best_val_loss
                     }, ckpt_path)
 
-    logging.info(f"✅ 학습 완료! 최적 모델 저장 위치: {ckpt_path}")
+    logging.info(f"학습 완료! 최적 모델 저장 위치: {ckpt_path}")
 
 if __name__ == "__main__":
-    train(ModelConfig(), TrainConfig())
+    m_cfg, t_cfg = load_config("config.yaml")
+    train(m_cfg, t_cfg)
+

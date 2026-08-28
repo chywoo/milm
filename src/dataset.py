@@ -1,12 +1,12 @@
 import os
 import json
-from typing import Tuple, List, Dict
+from typing import Tuple, List, Dict, Optional
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 class CharTokenizer:
     """문자 기반 토크나이저 (어휘 사전 저장 및 불러오기 지원)"""
-    def __init__(self, vocab: List[str] = None):
+    def __init__(self, vocab: Optional[List[str]] = None):
         self.vocab = vocab or []
         self.char_to_idx: Dict[str, int] = {ch: i for i, ch in enumerate(self.vocab)}
         self.idx_to_char: Dict[int, str] = {i: ch for i, ch in enumerate(self.vocab)}
@@ -76,3 +76,4 @@ def create_dataloaders(
     )
     
     return train_loader, val_loader, tokenizer
+

@@ -1,6 +1,6 @@
 import os
 import math
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from collections import Counter
 import torch
 import torch.nn as nn
@@ -8,12 +8,17 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import torch.cuda.nvtx as nvtx
 
-from config import ModelConfig, TrainConfig
-from model import MiniLLM
-from dataset import CharTokenizer, TextDataset
+try:
+    from .config import ModelConfig, TrainConfig, load_config
+    from .model import MiniLLM
+    from .dataset import CharTokenizer, TextDataset
+except (ImportError, ValueError):
+    from config import ModelConfig, TrainConfig, load_config
+    from model import MiniLLM
+    from dataset import CharTokenizer, TextDataset
 
 # =====================================================================
-# 1. 🎯 지표 계산 함수 (BLEU 및 ROUGE-L)
+# 1. 지표 계산 함수 (BLEU 및 ROUGE-L)
 # =====================================================================
 def calculate_ngram_precision(reference: List[str], candidate: List[str], n: int) -> float:
     """단일 n-gram 정밀도 계산 (문자 단위)"""
@@ -81,7 +86,7 @@ def compute_rouge_l(reference: str, candidate: str) -> float:
 
 
 # =====================================================================
-# 2. 🧪 평가 엔진 클래스
+# 2. 평가 엔진 클래스
 # =====================================================================
 class LLMEvaluator:
     def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = "cpu"):
@@ -97,7 +102,7 @@ class LLMEvaluator:
         self.model.eval()
 
     # -------------------------------------------------------------
-    # 📉 평가 1: Perplexity (PPL) & Cross-Entropy Loss
+    # 평가 1: Perplexity (PPL) & Cross-Entropy Loss
     # -------------------------------------------------------------
     @torch.no_grad()
     def evaluate_perplexity(self, test_text: str, batch_size: int = 32) -> Tuple[float, float]:
@@ -126,7 +131,7 @@ class LLMEvaluator:
             return avg_loss, perplexity
 
     # -------------------------------------------------------------
-    # 🎯 평가 2: N-gram 정밀도 및 텍스트 유사도 (BLEU & ROUGE)
+    # 평가 2: N-gram 정밀도 및 텍스트 유사도 (BLEU & ROUGE)
     # -------------------------------------------------------------
     @torch.no_grad()
     def evaluate_similarity_metrics(self, test_pairs: List[Tuple[str, str]]) -> Dict[str, float]:
@@ -147,7 +152,7 @@ class LLMEvaluator:
             return {"BLEU": avg_bleu, "ROUGE-L": avg_rouge}
 
     # -------------------------------------------------------------
-    # 🧪 평가 3: 프롬프트 벤치마크 테스트베드 (Evaluation Harness)
+    # 평가 3: 프롬프트 벤치마크 테스트베드 (Evaluation Harness)
     # -------------------------------------------------------------
     @torch.no_grad()
     def run_benchmark_suite(self, test_prompts: List[str], temperatures: List[float] = [0.2, 0.7, 1.2]) -> List[Dict]:
@@ -200,42 +205,42 @@ class LLMEvaluator:
 
 
 # =====================================================================
-# 3. 🏁 실행 진입점
+# 3. 실행 진입점
 # =====================================================================
 if __name__ == "__main__":
     ckpt_path = "checkpoints/best_model.pt"
     tok_path = "checkpoints/tokenizer.json"
-    train_config = TrainConfig()
+    _, train_config = load_config("config.yaml")
     
     if not (os.path.exists(ckpt_path) and os.path.exists(tok_path)):
-        print("❌ 모델 체크포인트 또는 토크나이저 파일이 존재하지 않습니다. train.py를 먼저 실행하세요.")
+        print("모델 체크포인트 또는 토크나이저 파일이 존재하지 않습니다. 먼저 scripts/train.py를 실행하세요.")
         exit(1)
 
     evaluator = LLMEvaluator(checkpoint_path=ckpt_path, tokenizer_path=tok_path, device=train_config.device)
     
     print("\n==========================================")
-    print(" 📊 1. Perplexity (PPL) 정량 평가")
+    print(" 1. Perplexity (PPL) 정량 평가")
     print("==========================================")
     sample_eval_corpus = (
         "The artificial intelligence and transformer architecture revolutionized natural language processing. "
         "Self-attention allows the model to weigh the importance of different tokens dynamically."
     ) * 10
     loss, ppl = evaluator.evaluate_perplexity(sample_eval_corpus)
-    print(f"📉 Test Loss: {loss:.4f} | 🧭 Perplexity: {ppl:.2f}")
+    print(f"Test Loss: {loss:.4f} | Perplexity: {ppl:.2f}")
 
     print("\n==========================================")
-    print(" 🎯 2. 문장 유사도 평가 (BLEU / ROUGE-L)")
+    print(" 2. 문장 유사도 평가 (BLEU / ROUGE-L)")
     print("==========================================")
     test_pairs = [
         ("The artificial ", "intelligence and transformer architecture"),
         ("Self-attention allows ", "the model to weigh the importance"),
     ]
     sim_scores = evaluator.evaluate_similarity_metrics(test_pairs)
-    print(f"🔹 BLEU-4 Score : {sim_scores['BLEU']:.4f}")
-    print(f"🔹 ROUGE-L Score: {sim_scores['ROUGE-L']:.4f}")
+    print(f"BLEU-4 Score : {sim_scores['BLEU']:.4f}")
+    print(f"ROUGE-L Score: {sim_scores['ROUGE-L']:.4f}")
 
     print("\n==========================================")
-    print(" 🧪 3. 프롬프트 벤치마크 테스트베드 결과")
+    print(" 3. 프롬프트 벤치마크 테스트베드 결과")
     print("==========================================")
     benchmark_prompts = [
         "The transformer ",
@@ -243,6 +248,6 @@ if __name__ == "__main__":
     ]
     bench_results = evaluator.run_benchmark_suite(benchmark_prompts, temperatures=[0.2, 0.7, 1.2])
     for item in bench_results:
-        print(f"\n📌 프롬프트: '{item['prompt']}'")
+        print(f"\n프롬프트: '{item['prompt']}'")
         for temp_k, gen_info in item['generations'].items():
             print(f"  [{temp_k}] (반복률: {gen_info['repetition_rate']:.2f}) -> {gen_info['text'].strip()}")
