@@ -65,11 +65,14 @@ flowchart TB
 ```text
 milm/
 ├── config.py             # 모델(ModelConfig) 및 학습/환경(TrainConfig) 하이퍼파라미터 설정
+├── config.yaml           # YAML 기반 모델/학습 하이퍼파라미터 설정 파일
+├── config.yaml.template  # 사용자 환경 설정을 위한 YAML 템플릿
 ├── model.py              # 트랜스포머(Decoder-Only MILM) 모델 아키텍처 구현
 ├── dataset.py            # 문자 기반 토크나이저(CharTokenizer) 및 시퀀스 데이터셋/데이터로더 파이프라인
 ├── train.py              # AMP, 스케줄러, 최적화 및 모델 체크포인트 저장 학습 루프
 ├── infer.py              # Top-k/Top-p/온도 조절/반복 페널티 기반 고속 텍스트 생성 추론 엔진
 ├── evaluate.py           # PPL, BLEU, ROUGE-L, 벤치마크 스위트 정량/정성 평가 모듈
+├── AGENTS.md             # 에이전트 및 개발자를 위한 저장소 개발 가이드라인
 ├── TRAINING_REPORT.md    # 모델 학습 결과, 손실 함수 추이 및 과적합 분석 보고서
 ├── ROADMAP.md            # 단계별 성능 개선 및 최신 아키텍처/최적화 로드맵
 ├── checkpoints/          # 최적 모델 체크포인트(best_model.pt) 및 어휘 사전(tokenizer.json)
@@ -83,12 +86,14 @@ milm/
 
 | 파일명 | 주요 클래스 및 함수 | 설명 |
 | :--- | :--- | :--- |
-| `config.py` | `ModelConfig`, `TrainConfig` | 임베딩 차원(`d_model`), 레이어 수(`num_layers`), 문맥 길이(`seq_len`), 배치 크기, 학습률, AMP/Compile 설정 등을 Dataclass로 관리 |
+| `config.py` | `ModelConfig`, `TrainConfig`, `load_config` | `config.yaml` 파일 파싱 및 임베딩 차원, 레이어 수, 배치 크기, 학습률, AMP/Compile 설정 등을 Dataclass로 관리 |
+| `config.yaml` | `model`, `train` 섹션 | 하이퍼파라미터 및 인프라 설정을 직관적으로 수정 가능한 YAML 설정 파일 |
 | `model.py` | `MiniLLM`, `TransformerBlock`, `CausalSelfAttention`, `FeedForward` | Pre-LN 및 Fast Attention(SDPA), Weight Tying, Fused QKV가 적용된 Decoder-Only 트랜스포머 모델 |
 | `dataset.py` | `CharTokenizer`, `TextDataset`, `create_dataloaders` | 문자 단위 어휘 사전 생성/저장/로드 및 슬라이딩 윈도우 기반 Next-Token Prediction 데이터셋 구성 |
 | `train.py` | `train`, `get_lr_scheduler` | Cosine Annealing 스케줄링, FP16 AMP 학습, 검증 Loss 기반 최적 체크포인트(`checkpoints/best_model.pt`) 저장 |
 | `infer.py` | `LLMInferenceEngine` | 체크포인트 로드 후 Top-k, Top-p, Repetition Penalty를 적용한 자동회귀 텍스트 생성 파이프라인 |
 | `evaluate.py` | `LLMEvaluator`, `compute_bleu`, `compute_rouge_l` | 모델 검증을 위한 Perplexity(PPL), BLEU-4, ROUGE-L, 다중 온도 프롬프트 벤치마크 및 n-gram 반복률 분석 |
+| `AGENTS.md` | - | 개발 환경 설정, 실행/검사 명령어, 아키텍처 경계 및 코딩 표준 지침 |
 | `TRAINING_REPORT.md` | - | 데이터셋 통계, 에포크별 Train/Val Loss 추이, 과적합 분석 및 정량 평가 보고서 |
 | `ROADMAP.md` | - | BPE 서브워드 토크나이저, KV Cache, RoPE, RMSNorm/SwiGLU 등 단계별 개선 과제 정의 |
 

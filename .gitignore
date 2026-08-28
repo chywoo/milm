@@ -59,6 +59,7 @@ Thumbs.db
 *.swo
 *~
 *.nsys-rep
+config.yaml
 
 # Data
 data/
