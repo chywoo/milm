@@ -2,7 +2,7 @@ import os
 from typing import Optional
 import torch
 import torch.nn.functional as F
-import torch.cuda.nvtx as nvtx
+from torch.profiler import record_function
 
 try:
     from .config import ModelConfig
@@ -45,19 +45,19 @@ class LLMInferenceEngine:
         repetition_penalty: float = 1.1
     ) -> str:
         """Top-k, Top-p(Nucleus), 반복 패널티가 적용된 자동회귀 생성"""
-        with nvtx.range("LLM_Generate"):
+        with record_function("LLM_Generate"):
             tokens = self.tokenizer.encode(prompt)
             input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
 
             for step in range(max_new_tokens):
-                with nvtx.range(f"Generate_Step_{step}"):
+                with record_function(f"Generate_Step_{step}"):
                     # 문맥 크기 유지
                     cond_input = input_ids[:, -self.cfg.seq_len:]
                     
-                    with nvtx.range("Model_Forward"):
+                    with record_function("Model_Forward"):
                         logits = self.model(cond_input)[:, -1, :] # 마지막 위치 토큰 로짓
 
-                    with nvtx.range("Repetition_Penalty"):
+                    with record_function("Repetition_Penalty"):
                         # 1. 반복 페널티 적용 (Repetition Penalty)
                         for token_id in set(input_ids[0].tolist()):
                             if logits[0, token_id] > 0:
@@ -65,7 +65,7 @@ class LLMInferenceEngine:
                             else:
                                 logits[0, token_id] *= repetition_penalty
 
-                    with nvtx.range("Sampling_TopK_TopP"):
+                    with record_function("Sampling_TopK_TopP"):
                         # 2. 온도 조절 (Temperature)
                         logits = logits / max(temperature, 1e-5)
 

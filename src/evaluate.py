@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-import torch.cuda.nvtx as nvtx
+from torch.profiler import record_function
 
 try:
     from .config import ModelConfig, TrainConfig, load_config
@@ -107,7 +107,7 @@ class LLMEvaluator:
     @torch.no_grad()
     def evaluate_perplexity(self, test_text: str, batch_size: int = 32) -> Tuple[float, float]:
         """테스트 데이터셋에 대한 평균 Cross-Entropy Loss 및 Perplexity 계산"""
-        with nvtx.range("Eval::Perplexity"):
+        with record_function("Eval::Perplexity"):
             token_ids = self.tokenizer.encode(test_text)
             test_ds = TextDataset(token_ids, self.cfg.seq_len)
             
@@ -119,7 +119,7 @@ class LLMEvaluator:
             
             total_loss = 0.0
             for step, (x, y) in enumerate(test_loader):
-                with nvtx.range(f"Eval_Batch_{step}"):
+                with record_function(f"Eval_Batch_{step}"):
                     x, y = x.to(self.device), y.to(self.device)
                     with torch.autocast(device_type=self.device, dtype=torch.float16, enabled=(self.device == "cuda")):
                         logits = self.model(x)
@@ -136,12 +136,12 @@ class LLMEvaluator:
     @torch.no_grad()
     def evaluate_similarity_metrics(self, test_pairs: List[Tuple[str, str]]) -> Dict[str, float]:
         """(프롬프트, 정답 타깃) 쌍을 바탕으로 생성 문장의 BLEU 및 ROUGE 점수 측정"""
-        with nvtx.range("Eval::Similarity"):
+        with record_function("Eval::Similarity"):
             bleu_scores = []
             rouge_scores = []
             
             for i, (prompt, target) in enumerate(test_pairs):
-                with nvtx.range(f"Eval_Pair_{i}"):
+                with record_function(f"Eval_Pair_{i}"):
                     generated = self._generate_completion(prompt, max_new_tokens=len(target))
                     bleu_scores.append(compute_bleu(target, generated))
                     rouge_scores.append(compute_rouge_l(target, generated))
@@ -157,14 +157,14 @@ class LLMEvaluator:
     @torch.no_grad()
     def run_benchmark_suite(self, test_prompts: List[str], temperatures: List[float] = [0.2, 0.7, 1.2]) -> List[Dict]:
         """다양한 온도(Temperature) 조건에서 벤치마크 프롬프트 생성 결과 및 반복률 측정"""
-        with nvtx.range("Eval::Benchmark_Suite"):
+        with record_function("Eval::Benchmark_Suite"):
             results = []
             
             for i, prompt in enumerate(test_prompts):
-                with nvtx.range(f"Prompt_Benchmark_{i}"):
+                with record_function(f"Prompt_Benchmark_{i}"):
                     prompt_results = {"prompt": prompt, "generations": {}}
                     for temp in temperatures:
-                        with nvtx.range(f"Temp_{temp}"):
+                        with record_function(f"Temp_{temp}"):
                             output = self._generate_completion(prompt, max_new_tokens=100, temperature=temp)
                             repetition_rate = self._compute_repetition_rate(output)
                             prompt_results["generations"][f"temp_{temp}"] = {
@@ -177,7 +177,7 @@ class LLMEvaluator:
 
     def _generate_completion(self, prompt: str, max_new_tokens: int, temperature: float = 0.7) -> str:
         """기본 자동회귀 텍스트 생성 보조 함수"""
-        with nvtx.range("Generate_Completion"):
+        with record_function("Generate_Completion"):
             tokens = self.tokenizer.encode(prompt)
             input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
             

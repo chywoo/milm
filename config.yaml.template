@@ -37,3 +37,5 @@ train:
   use_amp: true                   # Automatic Mixed Precision (FP16) 활성화 여부
   compile_model: true             # PyTorch 2.0+ torch.compile 활성화 여부 (CUDA 전용)
   val_split: 0.1                  # 검증 데이터셋 분할 비율 (0.0 ~ 1.0)
+  profile: false                  # PyTorch 통합 프로파일러 활성화 여부
+  profile_dir: "profiler_logs"    # 프로파일링 결과(트레이스) 저장 디렉토리 경로

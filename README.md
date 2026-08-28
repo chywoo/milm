@@ -186,11 +186,11 @@ python scripts/evaluate.py
 
 ---
 
-## NVIDIA 프로파일링 (NVIDIA NVTX & Nsight Profiling)
+#### ⚡ 프로파일링 및 성능 분석 (PyTorch Profiler & Performance Tracing)
 
-코드베이스 전반에 **NVIDIA Tools Extension (NVTX)** 마커가 내장되어 있어, **NVIDIA Nsight Systems (`nsys`)** 및 **Nsight Compute (`ncu`)**를 사용하여 CUDA 커널 연산, H2D/D2H 메모리 복사 병목, 레이어별 연산 소요 시간을 시각적으로 정밀 분석할 수 있습니다.
+코드베이스 전반에 **PyTorch 통합 프로파일러(`torch.profiler.record_function`)** 마커가 내장되어 있어, macOS(CPU/MPS), Linux, Windows, NVIDIA GPU 등 모든 환경에서 추가 의존성 없이 레이어별 연산 시간, 텐서 전송 병목, 메모리 사용량을 정밀 분석할 수 있습니다.
 
-### 1. NVTX 계층 구조 (NVTX Range Hierarchy)
+### 1. 프로파일러 계층 구조 (Profiler Range Hierarchy)
 
 * **모델 아키텍처 (`src/model.py`)**:
   * `MiniLLM::forward`
@@ -216,42 +216,21 @@ python scripts/evaluate.py
 
 ### 2. 프로파일링 실행 방법
 
-#### NVIDIA Nsight Systems (`nsys`) 프로파일링
-전체 시스템 타임라인(CUDA 커널, NVTX 범위, 메모리 복사, CPU OS 런타임)을 프로파일링합니다.
-
-```bash
-# 1. 학습 루프 프로파일링
-nsys profile \
-  -t cuda,nvtx,osrt \
-  -s cpu \
-  --output=profile_train \
-  --export=sqlite \
-  python scripts/train.py
-
-# 2. 추론 파이프라인 프로파일링
-nsys profile \
-  -t cuda,nvtx,osrt \
-  --output=profile_infer \
-  python scripts/infer.py
-
-# 3. 스크립트 기반 자동 프로파일링
-./scripts/profile.sh nsys
+#### 🔹 PyTorch 통합 프로파일러 활성화
+`config.yaml`에서 프로파일러 설정을 켜고 학습을 실행합니다:
+```yaml
+train:
+  profile: true
+  profile_dir: "profiler_logs"
 ```
 
-#### NVIDIA Nsight Compute (`ncu`) 커널 정밀 분석
-특정 NVTX 범위 내의 GPU 커널(예: FlashAttention / SDPA) 성능 및 메모리 대역폭을 상세 분석합니다.
-
 ```bash
-# FlashAttention SDPA 커널 정밀 분석
-ncu --nvtx --nvtx-include "FlashAttention_SDPA" \
-  --set full \
-  -o profile_sdpa_kernel \
-  python scripts/train.py
-
-# 스크립트 기반 자동 실행
-./scripts/profile.sh ncu
+milm-train
 ```
 
-#### 결과 시각화 (GUI)
-1. 생성된 `llm_profile.nsys-rep` (또는 `profile_train.nsys-rep`) 파일을 로컬 머신으로 다운로드합니다.
-2. **NVIDIA Nsight Systems GUI** 애플리케이션에서 열어 `NVTX` 타임라인 레인을 확장하면 계층별 실행 시간과 GPU 병목 구간을 확인할 수 있습니다.
+#### 🔹 결과 시각화
+* **Chrome Tracing / Perfetto**: 브라우저에서 `chrome://tracing` 또는 [ui.perfetto.dev](https://ui.perfetto.dev)에 접속한 뒤 `profiler_logs/`에 생성된 `.json` 트레이스 파일을 드래그앤드롭하여 시각화합니다.
+* **TensorBoard**:
+  ```bash
+  tensorboard --logdir=profiler_logs
+  ```

@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.cuda.nvtx as nvtx
+from torch.profiler import record_function
 
 try:
     from .config import ModelConfig
@@ -24,21 +24,21 @@ class CausalSelfAttention(nn.Module):
         self.dropout = cfg.dropout
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        with nvtx.range("CausalSelfAttention"):
+        with record_function("CausalSelfAttention"):
             B, T, C = x.shape       # 32, 128, 256
             
-            with nvtx.range("QKV_Projection"):
+            with record_function("QKV_Projection"):
                 # (B, T, 3 * d_model) -> 3개의 (B, num_heads, T, head_dim)
                 qkv = self.c_attn(x)    # qkv.shape = (32, 128, 768)
                 q, k, v = qkv.chunk(3, dim=-1) # each shape = (32, 128, 256)
 
-            with nvtx.range("QKV_Reshape"):
+            with record_function("QKV_Reshape"):
                 # reshape to (32, 128, 8, 32) and transpose to (32, 8, 128, 32)
                 q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
                 k = k.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
                 v = v.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
 
-            with nvtx.range("FlashAttention_SDPA"):
+            with record_function("FlashAttention_SDPA"):
                 # PyTorch 내부 최적화 C++ 커널 호출 (FlashAttention/Mem-Efficient)
                 out = F.scaled_dot_product_attention(
                     q, k, v, 
@@ -46,7 +46,7 @@ class CausalSelfAttention(nn.Module):
                     is_causal=True
                 )
 
-            with nvtx.range("Out_Projection"):
+            with record_function("Out_Projection"):
                 # restore dimension to x.shape
                 out = out.transpose(1, 2).contiguous().view(B, T, C)     # out.shape=(32,128,256)
                 res = self.out_proj(out)
@@ -64,7 +64,7 @@ class FeedForward(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        with nvtx.range("FeedForward"):
+        with record_function("FeedForward"):
             return self.net(x)
 
 class TransformerBlock(nn.Module):
@@ -78,10 +78,10 @@ class TransformerBlock(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Pre-LN 방식: 서브레이어 진입 전 정규화, 순수 잔차 연결 유지
-        with nvtx.range("TransformerBlock"):
-            with nvtx.range("PreLN1_SelfAttention"):
+        with record_function("TransformerBlock"):
+            with record_function("PreLN1_SelfAttention"):
                 x = x + self.attn(self.ln1(x))
-            with nvtx.range("PreLN2_FeedForward"):
+            with record_function("PreLN2_FeedForward"):
                 x = x + self.ffn(self.ln2(x))
             return x
 
@@ -113,23 +113,23 @@ class MiniLLM(nn.Module):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx: torch.Tensor) -> torch.Tensor:
-        with nvtx.range("MiniLLM::forward"):
+        with record_function("MiniLLM::forward"):
             B, T = idx.shape
             assert T <= self.cfg.seq_len, f"입력 길이({T})가 최대 문맥 길이({self.cfg.seq_len})를 초과했습니다."
             
-            with nvtx.range("Embedding_PosEncoding"):
+            with record_function("Embedding_PosEncoding"):
                 positions = torch.arange(0, T, device=idx.device)
                 x = self.token_emb(idx) + self.pos_emb(positions)
                 x = self.drop(x)
             
             for i, block in enumerate(self.blocks):
-                with nvtx.range(f"Block_{i}"):
+                with record_function(f"Block_{i}"):
                     x = block(x)
                 
-            with nvtx.range("Final_LayerNorm"):
+            with record_function("Final_LayerNorm"):
                 x = self.final_ln(x)
 
-            with nvtx.range("LM_Head"):
+            with record_function("LM_Head"):
                 logits = self.lm_head(x)
 
             return logits

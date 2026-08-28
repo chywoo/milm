@@ -74,6 +74,8 @@ class TrainConfig:
     use_amp: bool = True          # Automatic Mixed Precision 활성화
     compile_model: bool = True    # PyTorch 2.0+ torch.compile 활성화 (CUDA 전용)
     val_split: float = 0.1        # 검증 데이터셋 비율
+    profile: bool = False         # PyTorch 통합 프로파일러 활성화 여부
+    profile_dir: str = "profiler_logs" # 프로파일링 트레이스 저장 디렉토리
 
     def __post_init__(self):
         if self.device == "auto" or not self.device:
@@ -108,6 +110,10 @@ class TrainConfig:
             filtered["compile_model"] = bool(filtered["compile_model"])
         if "val_split" in filtered:
             filtered["val_split"] = float(filtered["val_split"])
+        if "profile" in filtered:
+            filtered["profile"] = bool(filtered["profile"])
+        if "profile_dir" in filtered:
+            filtered["profile_dir"] = str(filtered["profile_dir"])
         if "device" in filtered and filtered["device"] == "auto":
             filtered["device"] = get_default_device()
 

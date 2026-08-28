@@ -43,6 +43,7 @@ wheels/
 *.log
 runs/
 wandb/
+profiler_logs/
 TRAINING_REPORT.md
 docs/TRAINING_REPORT.md
 
@@ -62,6 +63,7 @@ Thumbs.db
 *.nsys-rep
 config.yaml
 
-# Data
+# Data & Datasets
 data/
+training_data/*.txt
 checkpoints/

@@ -1,8 +1,9 @@
 # AGENTS.md
 
 ## 목적 (Purpose)
+본 프로젝트의 이름은 **MILM**입니다. Lightweight Transformer Decoder-Only Language Model이며, LLM의 학습 목적으로 시작했습니다.
 
-이 문서는 **MILM (Lightweight Transformer Decoder-Only Language Model)** 저장소에서 AI 에이전트 및 개발자가 작업할 때 준수해야 할 작업 방식과 규칙을 정의합니다.
+이 문서는 MILM 저장소에서 AI 에이전트 및 개발자가 작업할 때 준수해야 할 작업 방식과 규칙을 정의합니다.
 코드 분석, 파일 수정, 환경 점검, 테스트 실행, 커밋 준비 및 변경 사항 적용 시 본 지침을 반드시 따르십시오.
 
 특정 모듈이나 문서(예: `README.md`, `ROADMAP.md`)에 본 문서와 상충되는 구체적인 지침이 명시된 경우, 해당 상위/특화 문서를 우선 적용합니다.
@@ -228,7 +229,7 @@ milm/
 - **명확한 네이밍**: 변수, 함수, 클래스명에 역할을 직관적으로 드러내는 명확한 이름을 사용합니다.
 - **타입 힌트**: 모든 주요 함수 시그니처 및 클래스 필드에 `typing` (`Tuple`, `List`, `Dict`, `Optional` 등)을 명시합니다.
 - **Docstring 및 주석**: 비직관적인 알고리즘이나 텐서 차원 변경 구간(`transpose`, `view`, `chunk` 등)에는 반드시 주석과 shape 설명을 첨부합니다.
-- **NVTX 계층 구조 준수**: 모델 포워드, 역전파, H2D 전송, 추론 루프의 계층적 NVTX Range를 훼손하지 않습니다.
+- **프로파일러 계층 구조 준수**: 모델 포워드, 역전파, H2D 전송, 추론 루프의 계층적 `torch.profiler.record_function` 마커를 훼손하지 않습니다.
 
 ---
 

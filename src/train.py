@@ -5,7 +5,7 @@ import math
 import logging
 import torch
 import torch.nn as nn
-import torch.cuda.nvtx as nvtx
+from torch.profiler import record_function
 
 try:
     from .config import ModelConfig, TrainConfig, load_config
@@ -73,42 +73,60 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     
     total_steps = len(train_loader) * t_cfg.epochs
     scheduler = get_lr_scheduler(optimizer, t_cfg.warmup_steps, total_steps, t_cfg.learning_rate, t_cfg.min_lr)
-    scaler = torch.amp.GradScaler("cuda", enabled=t_cfg.use_amp and t_cfg.device == "cuda")
+
+    # PyTorch 버전 호환 GradScaler 초기화 (PyTorch 2.1+ vs 이전 버전)
+    use_scaler = t_cfg.use_amp and t_cfg.device == "cuda"
+    if hasattr(torch.amp, "GradScaler"):
+        scaler = torch.amp.GradScaler("cuda", enabled=use_scaler)
+    elif hasattr(torch.cuda, "amp") and hasattr(torch.cuda.amp, "GradScaler"):
+        scaler = torch.cuda.amp.GradScaler(enabled=use_scaler)
+    else:
+        class _DummyScaler:
+            def scale(self, loss):
+                return loss
+            def unscale_(self, optimizer):
+                pass
+            def step(self, optimizer):
+                optimizer.step()
+            def update(self):
+                pass
+        scaler = _DummyScaler()
+
     criterion = nn.CrossEntropyLoss()
 
     best_val_loss = float('inf')
     device_type = t_cfg.device if t_cfg.device in ("cuda", "mps", "cpu") else "cpu"
 
     # 3. 학습 루프
-    logging.info(f"모델 학습 시작 (디바이스: {t_cfg.device})")
+    logging.info(f"🚀 모델 학습 시작 (디바이스: {t_cfg.device})")
     for epoch in range(1, t_cfg.epochs + 1):
-        with nvtx.range(f"Epoch_{epoch}"):
+        with record_function(f"Epoch_{epoch}"):
             model.train()
             train_loss = 0.0
             start_time = time.time()
             
             for step, (x, y) in enumerate(train_loader):
-                with nvtx.range(f"Train_Step_{step}"):
-                    with nvtx.range("H2D_Transfer"):
+                with record_function(f"Train_Step_{step}"):
+                    with record_function("H2D_Transfer"):
                         x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                         y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                     
                     optimizer.zero_grad(set_to_none=True)
 
-                    with nvtx.range("Forward_Pass"):
+                    with record_function("Forward_Pass"):
                         with torch.autocast(
                             device_type=device_type, 
                             dtype=torch.float16, 
                             enabled=t_cfg.use_amp and device_type in ("cuda", "mps")
                         ):
                             logits = model(x)
-                            with nvtx.range("Loss_Calculation"):
+                            with record_function("Loss_Calculation"):
                                 loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
                         
-                    with nvtx.range("Backward_Pass"):
+                    with record_function("Backward_Pass"):
                         scaler.scale(loss).backward()
 
-                    with nvtx.range("Optimizer_Step"):
+                    with record_function("Optimizer_Step"):
                         scaler.unscale_(optimizer)
                         torch.nn.utils.clip_grad_norm_(model.parameters(), t_cfg.grad_clip)
                         scaler.step(optimizer)
@@ -118,13 +136,13 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
                     train_loss += loss.item()
 
             # 검증 루프
-            with nvtx.range("Validation_Epoch"):
+            with record_function("Validation_Epoch"):
                 model.eval()
                 val_loss = 0.0
                 with torch.no_grad():
                     for val_step, (x, y) in enumerate(val_loader):
-                        with nvtx.range(f"Val_Step_{val_step}"):
-                            with nvtx.range("Val_H2D_Transfer"):
+                        with record_function(f"Val_Step_{val_step}"):
+                            with record_function("Val_H2D_Transfer"):
                                 x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                                 y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                             with torch.autocast(
@@ -150,7 +168,7 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
             # 최고 성능 모델 체크포인트 저장
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
-                with nvtx.range("Save_Checkpoint"):
+                with record_function("Save_Checkpoint"):
                     raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
                     ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
                     torch.save({
