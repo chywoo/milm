@@ -29,7 +29,7 @@ def main():
     parser.add_argument("--repetition_penalty", type=float, default=1.1, help="Repetition penalty")
     parser.add_argument("--checkpoint", type=str, default=str(ROOT_DIR / "checkpoints" / "best_model.pt"), help="Model checkpoint path")
     parser.add_argument("--tokenizer", type=str, default=str(ROOT_DIR / "checkpoints" / "tokenizer.json"), help="Tokenizer file path")
-    parser.add_argument("--emit_nvtx", action="store_true", default=True, help="Enable NVTX marker emission for profiling")
+    parser.add_argument("--profile", action="store_true", default=False, help="Enable PyTorch Profiler for inference")
     args = parser.parse_args()
 
     if not (os.path.exists(args.checkpoint) and os.path.exists(args.tokenizer)):
@@ -42,12 +42,11 @@ def main():
     
     print(f"Prompt: \"{args.prompt}\"")
 
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if torch.cuda.is_available():
-        activities.append(torch.profiler.ProfilerActivity.CUDA)
+    if args.profile:
+        activities = [torch.profiler.ProfilerActivity.CPU]
+        if torch.cuda.is_available():
+            activities.append(torch.profiler.ProfilerActivity.CUDA)
 
-    use_nvtx = args.emit_nvtx and torch.cuda.is_available()
-    with torch.autograd.profiler.emit_nvtx(enabled=use_nvtx):
         with torch.profiler.profile(
             activities=activities,
             record_shapes=True,
@@ -61,6 +60,18 @@ def main():
                 top_p=args.top_p,
                 repetition_penalty=args.repetition_penalty
             )
+        print("\n--- Profiler Summary (Top 10 Time) ---")
+        sort_metric = "cuda_time_total" if torch.cuda.is_available() else "cpu_time_total"
+        print(prof.key_averages().table(sort_by=sort_metric, row_limit=10))
+    else:
+        output = engine.generate(
+            prompt=args.prompt,
+            max_new_tokens=args.tokens,
+            temperature=args.temp,
+            top_k=args.top_k,
+            top_p=args.top_p,
+            repetition_penalty=args.repetition_penalty
+        )
     print("\n--- Generation Result ---")
     print(output)
 

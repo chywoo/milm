@@ -3,9 +3,9 @@ import glob
 import time
 import math
 import logging
+from typing import Optional, Callable
 import torch
 import torch.nn as nn
-import torch.profiler
 from torch.profiler import record_function
 
 try:
@@ -33,7 +33,7 @@ def get_lr_scheduler(optimizer, warmup_steps, total_steps, max_lr, min_lr):
         return max(min_lr / max_lr, 0.5 * (1.0 + math.cos(math.pi * progress)))
     return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
-def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
+def train(m_cfg: ModelConfig, t_cfg: TrainConfig, on_step_end: Optional[Callable[[int], None]] = None):
     os.makedirs(t_cfg.checkpoint_dir, exist_ok=True)
     
     # 1. Load text datasets (all .txt files in data directory)
@@ -98,110 +98,88 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig):
     best_val_loss = float('inf')
     device_type = t_cfg.device if t_cfg.device in ("cuda", "mps", "cpu") else "cpu"
 
-    # Setup PyTorch Profiler if profile or emit_nvtx is enabled
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if torch.cuda.is_available() and device_type == "cuda":
-        activities.append(torch.profiler.ProfilerActivity.CUDA)
-
-    if t_cfg.profile:
-        profiler = torch.profiler.profile(
-            activities=activities,
-            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3, repeat=2),
-            on_trace_ready=torch.profiler.tensorboard_trace_handler(t_cfg.profile_dir),
-            record_shapes=True,
-            profile_memory=True,
-            with_stack=True,
-        )
-    else:
-        from contextlib import nullcontext
-        profiler = nullcontext()
-
-    use_nvtx = t_cfg.emit_nvtx and torch.cuda.is_available()
-
     # 3. Training loop
-    logging.info(f"🚀 Starting model training (device: {t_cfg.device}, emit_nvtx: {t_cfg.emit_nvtx})")
-    with torch.autograd.profiler.emit_nvtx(enabled=use_nvtx):
-        with profiler:
-            for epoch in range(1, t_cfg.epochs + 1):
-                with record_function(f"Epoch_{epoch}"):
-                    model.train()
-                    train_loss = 0.0
-                    start_time = time.time()
+    logging.info(f"Starting model training (device: {t_cfg.device})")
+    for epoch in range(1, t_cfg.epochs + 1):
+        with record_function(f"Epoch_{epoch}"):
+            model.train()
+            train_loss = 0.0
+            start_time = time.time()
+            
+            for step, (x, y) in enumerate(train_loader):
+                with record_function(f"Train_Step_{step}"):
+                    with record_function("H2D_Transfer"):
+                        x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                        y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                     
-                    for step, (x, y) in enumerate(train_loader):
-                        with record_function(f"Train_Step_{step}"):
-                            with record_function("H2D_Transfer"):
-                                x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                                y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                            
-                            optimizer.zero_grad(set_to_none=True)
+                    optimizer.zero_grad(set_to_none=True)
 
-                            with record_function("Forward_Pass"):
+                    with record_function("Forward_Pass"):
+                        with torch.autocast(
+                            device_type="cuda" if t_cfg.device == "cuda" else "cpu", 
+                            dtype=torch.float16, 
+                            enabled=t_cfg.use_amp and device_type in ("cuda")
+                        ):
+                            logits = model(x)
+                            with record_function("Loss_Calculation"):
+                                loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                        
+                    with record_function("Backward_Pass"):
+                        scaler.scale(loss).backward()
+
+                    with record_function("Optimizer_Step"):
+                        scaler.unscale_(optimizer)
+                        torch.nn.utils.clip_grad_norm_(model.parameters(), t_cfg.grad_clip)
+                        scaler.step(optimizer)
+                        scaler.update()
+                        scheduler.step()
+
+                    train_loss += loss.item()
+                    if on_step_end is not None:
+                        on_step_end(step)
+
+                # Validation loop
+                with record_function("Validation_Epoch"):
+                    model.eval()
+                    val_loss = 0.0
+                    with torch.no_grad():
+                        for val_step, (x, y) in enumerate(val_loader):
+                            with record_function(f"Val_Step_{val_step}"):
+                                with record_function("Val_H2D_Transfer"):
+                                    x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                                    y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
                                 with torch.autocast(
-                                    device_type="cuda" if t_cfg.device == "cuda" else "cpu", 
+                                    device_type="cuda" if t_cfg.device == "cuda" else "cpu",  
                                     dtype=torch.float16, 
                                     enabled=t_cfg.use_amp and device_type in ("cuda")
                                 ):
                                     logits = model(x)
-                                    with record_function("Loss_Calculation"):
-                                        loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                                
-                            with record_function("Backward_Pass"):
-                                scaler.scale(loss).backward()
+                                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                                val_loss += loss.item()
+                        
+                avg_train_loss = train_loss / len(train_loader)
+                avg_val_loss = val_loss / max(1, len(val_loader))
+                elapsed = time.time() - start_time
+                
+                if epoch % 10 == 0 or epoch == 1:
+                    logging.info(
+                        f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
+                        f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
+                        f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
+                    )
 
-                            with record_function("Optimizer_Step"):
-                                scaler.unscale_(optimizer)
-                                torch.nn.utils.clip_grad_norm_(model.parameters(), t_cfg.grad_clip)
-                                scaler.step(optimizer)
-                                scaler.update()
-                                scheduler.step()
-
-                            train_loss += loss.item()
-                            if isinstance(profiler, torch.profiler.profile) and profiler.schedule:
-                                profiler.step()
-
-                    # Validation loop
-                    with record_function("Validation_Epoch"):
-                        model.eval()
-                        val_loss = 0.0
-                        with torch.no_grad():
-                            for val_step, (x, y) in enumerate(val_loader):
-                                with record_function(f"Val_Step_{val_step}"):
-                                    with record_function("Val_H2D_Transfer"):
-                                        x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                                        y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                                    with torch.autocast(
-                                        device_type=device_type, 
-                                        dtype=torch.float16, 
-                                        enabled=t_cfg.use_amp and device_type in ("cuda", "mps")
-                                    ):
-                                        logits = model(x)
-                                        loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                                    val_loss += loss.item()
-                            
-                    avg_train_loss = train_loss / len(train_loader)
-                    avg_val_loss = val_loss / max(1, len(val_loader))
-                    elapsed = time.time() - start_time
-                    
-                    if epoch % 10 == 0 or epoch == 1:
-                        logging.info(
-                            f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
-                            f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
-                            f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
-                        )
-
-                    # Save best checkpoint
-                    if avg_val_loss < best_val_loss:
-                        best_val_loss = avg_val_loss
-                        with record_function("Save_Checkpoint"):
-                            raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-                            ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
-                            torch.save({
-                                'model_state_dict': raw_model.state_dict(),
-                                'model_config': m_cfg,
-                                'epoch': epoch,
-                                'val_loss': best_val_loss
-                            }, ckpt_path)
+                # Save best checkpoint
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    with record_function("Save_Checkpoint"):
+                        raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+                        ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
+                        torch.save({
+                            'model_state_dict': raw_model.state_dict(),
+                            'model_config': m_cfg,
+                            'epoch': epoch,
+                            'val_loss': best_val_loss
+                        }, ckpt_path)
 
     logging.info(f"Training complete! Best checkpoint saved at: {ckpt_path}")
 

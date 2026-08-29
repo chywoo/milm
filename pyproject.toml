@@ -7,7 +7,7 @@ name = "milm"
 version = "0.1.0"
 description = "MILM: Lightweight Transformer Decoder-Only Language Model"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [
     { name = "MILM Team" }
@@ -35,7 +35,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "torch>=2.0.0",
+    "torch>=2.2.0",
     "pyyaml>=6.0",
 ]
 
@@ -83,4 +83,11 @@ warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
 exclude = ["fastText"]
+
+[tool.uv]
+required-environments = [
+    "sys_platform == 'darwin' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "sys_platform == 'linux' and platform_machine == 'aarch64'",
+]
 

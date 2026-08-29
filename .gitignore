@@ -62,6 +62,7 @@ Thumbs.db
 *~
 *.nsys-rep
 *.sqlite
+*.lock
 analysis/
 config.yaml
 
