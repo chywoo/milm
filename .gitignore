@@ -61,6 +61,8 @@ Thumbs.db
 *.swo
 *~
 *.nsys-rep
+*.sqlite
+analysis/
 config.yaml
 
 # Data & Datasets

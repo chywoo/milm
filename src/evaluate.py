@@ -18,10 +18,10 @@ except (ImportError, ValueError):
     from dataset import CharTokenizer, TextDataset
 
 # =====================================================================
-# 1. 지표 계산 함수 (BLEU 및 ROUGE-L)
+# 1. Evaluation Metric Functions (BLEU and ROUGE-L)
 # =====================================================================
 def calculate_ngram_precision(reference: List[str], candidate: List[str], n: int) -> float:
-    """단일 n-gram 정밀도 계산 (문자 단위)"""
+    """Calculate n-gram precision (character-level)."""
     if len(candidate) < n or len(reference) < n:
         return 0.0
     
@@ -37,7 +37,7 @@ def calculate_ngram_precision(reference: List[str], candidate: List[str], n: int
     return clipped_matches / total_cand if total_cand > 0 else 0.0
 
 def compute_bleu(reference: str, candidate: str, max_n: int = 4) -> float:
-    """문자 기반 BLEU-4 점수 계산 (Brevity Penalty 포함)"""
+    """Compute character-level BLEU-4 score including Brevity Penalty."""
     ref_tokens = list(reference)
     cand_tokens = list(candidate)
     
@@ -48,18 +48,18 @@ def compute_bleu(reference: str, candidate: str, max_n: int = 4) -> float:
     for n in range(1, max_n + 1):
         p = calculate_ngram_precision(ref_tokens, cand_tokens, n)
         if p == 0:
-            return 0.0  # 지수 감쇠 특성
+            return 0.0  # Exponential decay property
         precisions.append(p)
     
-    # 기하평균 계산
+    # Geometric mean
     geom_mean = math.exp(sum(math.log(p) for p in precisions) / max_n)
     
-    # 짧은 문장에 대한 페널티 (Brevity Penalty)
+    # Brevity Penalty for short sequences
     bp = 1.0 if len(cand_tokens) > len(ref_tokens) else math.exp(1 - len(ref_tokens) / max(len(cand_tokens), 1))
     return bp * geom_mean
 
 def compute_rouge_l(reference: str, candidate: str) -> float:
-    """최장 공통 부분 수열(LCS) 기반 ROUGE-L F1 점수 계산"""
+    """Compute ROUGE-L F1 score based on Longest Common Subsequence (LCS)."""
     ref_tokens = list(reference)
     cand_tokens = list(candidate)
     
@@ -67,7 +67,7 @@ def compute_rouge_l(reference: str, candidate: str) -> float:
     if m == 0 or n == 0:
         return 0.0
     
-    # 2D DP 테이블로 LCS 길이 계산
+    # Compute LCS length using 2D DP table
     dp = [[0] * (n + 1) for _ in range(m + 1)]
     for i in range(1, m + 1):
         for j in range(1, n + 1):
@@ -86,13 +86,13 @@ def compute_rouge_l(reference: str, candidate: str) -> float:
 
 
 # =====================================================================
-# 2. 평가 엔진 클래스
+# 2. Evaluation Engine Class
 # =====================================================================
 class LLMEvaluator:
     def __init__(self, checkpoint_path: str, tokenizer_path: str, device: str = "cpu"):
         self.device = device 
         
-        # 토크나이저 및 모델 체크포인트 복원
+        # Restore tokenizer and model checkpoint
         self.tokenizer = CharTokenizer.load(tokenizer_path)
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
@@ -102,17 +102,17 @@ class LLMEvaluator:
         self.model.eval()
 
     # -------------------------------------------------------------
-    # 평가 1: Perplexity (PPL) & Cross-Entropy Loss
+    # Evaluation 1: Perplexity (PPL) & Cross-Entropy Loss
     # -------------------------------------------------------------
     @torch.no_grad()
     def evaluate_perplexity(self, test_text: str, batch_size: int = 32) -> Tuple[float, float]:
-        """테스트 데이터셋에 대한 평균 Cross-Entropy Loss 및 Perplexity 계산"""
+        """Compute average Cross-Entropy Loss and Perplexity on test text."""
         with record_function("Eval::Perplexity"):
             token_ids = self.tokenizer.encode(test_text)
             test_ds = TextDataset(token_ids, self.cfg.seq_len)
             
             if len(test_ds) == 0:
-                raise ValueError("테스트 텍스트가 시퀀스 길이(seq_len)보다 짧습니다.")
+                raise ValueError("Test text is shorter than sequence length (seq_len).")
                 
             test_loader = DataLoader(test_ds, batch_size=batch_size, shuffle=False)
             criterion = nn.CrossEntropyLoss()
@@ -131,11 +131,11 @@ class LLMEvaluator:
             return avg_loss, perplexity
 
     # -------------------------------------------------------------
-    # 평가 2: N-gram 정밀도 및 텍스트 유사도 (BLEU & ROUGE)
+    # Evaluation 2: N-gram Precision and Similarity (BLEU & ROUGE)
     # -------------------------------------------------------------
     @torch.no_grad()
     def evaluate_similarity_metrics(self, test_pairs: List[Tuple[str, str]]) -> Dict[str, float]:
-        """(프롬프트, 정답 타깃) 쌍을 바탕으로 생성 문장의 BLEU 및 ROUGE 점수 측정"""
+        """Evaluate BLEU and ROUGE scores from (prompt, reference target) pairs."""
         with record_function("Eval::Similarity"):
             bleu_scores = []
             rouge_scores = []
@@ -152,11 +152,11 @@ class LLMEvaluator:
             return {"BLEU": avg_bleu, "ROUGE-L": avg_rouge}
 
     # -------------------------------------------------------------
-    # 평가 3: 프롬프트 벤치마크 테스트베드 (Evaluation Harness)
+    # Evaluation 3: Benchmark Testbed Harness
     # -------------------------------------------------------------
     @torch.no_grad()
     def run_benchmark_suite(self, test_prompts: List[str], temperatures: List[float] = [0.2, 0.7, 1.2]) -> List[Dict]:
-        """다양한 온도(Temperature) 조건에서 벤치마크 프롬프트 생성 결과 및 반복률 측정"""
+        """Generate completions and measure repetition rates across temperatures."""
         with record_function("Eval::Benchmark_Suite"):
             results = []
             
@@ -176,7 +176,7 @@ class LLMEvaluator:
             return results
 
     def _generate_completion(self, prompt: str, max_new_tokens: int, temperature: float = 0.7) -> str:
-        """기본 자동회귀 텍스트 생성 보조 함수"""
+        """Helper function for autoregressive text generation."""
         with record_function("Generate_Completion"):
             tokens = self.tokenizer.encode(prompt)
             input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
@@ -191,11 +191,11 @@ class LLMEvaluator:
                 next_token = torch.multinomial(probs, num_samples=1)
                 input_ids = torch.cat((input_ids, next_token), dim=1)
                 
-            # 생성된 부분만 반환
+            # Return only newly generated tokens
             return self.tokenizer.decode(input_ids[0, len(tokens):].tolist())
 
     def _compute_repetition_rate(self, text: str, n: int = 3) -> float:
-        """생성된 문장의 3-gram 반복 비율 계산 (0에 가까울수록 풍부한 표현)"""
+        """Compute 3-gram repetition rate (closer to 0 means richer diversity)."""
         tokens = list(text)
         if len(tokens) < n:
             return 0.0
@@ -205,7 +205,7 @@ class LLMEvaluator:
 
 
 # =====================================================================
-# 3. 실행 진입점
+# 3. Execution Entrypoint
 # =====================================================================
 if __name__ == "__main__":
     ckpt_path = "checkpoints/best_model.pt"
@@ -213,13 +213,13 @@ if __name__ == "__main__":
     _, train_config = load_config("config.yaml")
     
     if not (os.path.exists(ckpt_path) and os.path.exists(tok_path)):
-        print("모델 체크포인트 또는 토크나이저 파일이 존재하지 않습니다. 먼저 scripts/train.py를 실행하세요.")
+        print("Model checkpoint or tokenizer not found. Please run scripts/train.py first.")
         exit(1)
 
     evaluator = LLMEvaluator(checkpoint_path=ckpt_path, tokenizer_path=tok_path, device=train_config.device)
     
     print("\n==========================================")
-    print(" 1. Perplexity (PPL) 정량 평가")
+    print(" 1. Quantitative Evaluation: Perplexity (PPL)")
     print("==========================================")
     sample_eval_corpus = (
         "The artificial intelligence and transformer architecture revolutionized natural language processing. "
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     print(f"Test Loss: {loss:.4f} | Perplexity: {ppl:.2f}")
 
     print("\n==========================================")
-    print(" 2. 문장 유사도 평가 (BLEU / ROUGE-L)")
+    print(" 2. Similarity Evaluation (BLEU / ROUGE-L)")
     print("==========================================")
     test_pairs = [
         ("The artificial ", "intelligence and transformer architecture"),
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     print(f"ROUGE-L Score: {sim_scores['ROUGE-L']:.4f}")
 
     print("\n==========================================")
-    print(" 3. 프롬프트 벤치마크 테스트베드 결과")
+    print(" 3. Prompt Benchmark Testbed Results")
     print("==========================================")
     benchmark_prompts = [
         "The transformer ",
@@ -248,6 +248,6 @@ if __name__ == "__main__":
     ]
     bench_results = evaluator.run_benchmark_suite(benchmark_prompts, temperatures=[0.2, 0.7, 1.2])
     for item in bench_results:
-        print(f"\n프롬프트: '{item['prompt']}'")
+        print(f"\nPrompt: '{item['prompt']}'")
         for temp_k, gen_info in item['generations'].items():
-            print(f"  [{temp_k}] (반복률: {gen_info['repetition_rate']:.2f}) -> {gen_info['text'].strip()}")
+            print(f"  [{temp_k}] (Repetition Rate: {gen_info['repetition_rate']:.2f}) -> {gen_info['text'].strip()}")

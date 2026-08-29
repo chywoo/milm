@@ -14,7 +14,7 @@ except (ImportError, ValueError):
     from dataset import CharTokenizer
 
 class LLMInferenceEngine:
-    """안전한 샘플링과 디코딩을 지원하는 추론 파이프라인"""
+    """Inference pipeline supporting safe sampling and decoding strategies."""
     def __init__(self, checkpoint_path: str, tokenizer_path: str, device: Optional[str] = None):
         if device is not None:
             self.device = device
@@ -25,7 +25,7 @@ class LLMInferenceEngine:
         else:
             self.device = "cpu"
         
-        # 토크나이저 및 가중치 복원
+        # Load tokenizer and checkpoint weights
         self.tokenizer = CharTokenizer.load(tokenizer_path)
         checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
         
@@ -44,21 +44,21 @@ class LLMInferenceEngine:
         top_p: float = 0.9,
         repetition_penalty: float = 1.1
     ) -> str:
-        """Top-k, Top-p(Nucleus), 반복 패널티가 적용된 자동회귀 생성"""
+        """Autoregressive text generation with Top-k, Top-p (Nucleus), and repetition penalty."""
         with record_function("LLM_Generate"):
             tokens = self.tokenizer.encode(prompt)
             input_ids = torch.tensor([tokens], dtype=torch.long, device=self.device)
 
             for step in range(max_new_tokens):
                 with record_function(f"Generate_Step_{step}"):
-                    # 문맥 크기 유지
+                    # Crop context to maximum sequence length
                     cond_input = input_ids[:, -self.cfg.seq_len:]
                     
                     with record_function("Model_Forward"):
-                        logits = self.model(cond_input)[:, -1, :] # 마지막 위치 토큰 로짓
+                        logits = self.model(cond_input)[:, -1, :] # Logits of the last token position
 
                     with record_function("Repetition_Penalty"):
-                        # 1. 반복 페널티 적용 (Repetition Penalty)
+                        # 1. Apply Repetition Penalty
                         for token_id in set(input_ids[0].tolist()):
                             if logits[0, token_id] > 0:
                                 logits[0, token_id] /= repetition_penalty
@@ -66,28 +66,28 @@ class LLMInferenceEngine:
                                 logits[0, token_id] *= repetition_penalty
 
                     with record_function("Sampling_TopK_TopP"):
-                        # 2. 온도 조절 (Temperature)
+                        # 2. Temperature scaling
                         logits = logits / max(temperature, 1e-5)
 
-                        # 3. Top-k 필터링
+                        # 3. Top-k filtering
                         if top_k > 0:
                             v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
                             logits[logits < v[:, [-1]]] = float('-inf')
 
-                        # 4. Top-p (Nucleus) 필터링
+                        # 4. Top-p (Nucleus) filtering
                         if top_p < 1.0:
                             sorted_logits, sorted_indices = torch.sort(logits, descending=True)
                             cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
                             
                             sorted_indices_to_remove = cumulative_probs > top_p
-                            # 첫 번째 유효 토큰은 유지
+                            # Keep at least the highest probability token
                             sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
                             sorted_indices_to_remove[..., 0] = 0
                             
                             indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
                             logits[indices_to_remove] = float('-inf')
 
-                        # 5. 샘플링 및 토큰 결합
+                        # 5. Sampling and token concatenation
                         probs = F.softmax(logits, dim=-1)
                         next_token = torch.multinomial(probs, num_samples=1)
                         input_ids = torch.cat((input_ids, next_token), dim=1)
@@ -102,8 +102,7 @@ if __name__ == "__main__":
         engine = LLMInferenceEngine(checkpoint_path=ckpt, tokenizer_path=tok)
         prompt_text = "The artificial "
         result = engine.generate(prompt=prompt_text, temperature=0.7, top_k=5, top_p=0.9)
-        print("\n--- 추론 결과 ---")
+        print("\n--- Generation Result ---")
         print(result)
     else:
-        print("체크포인트 파일이 존재하지 않습니다. 먼저 train.py를 실행하세요.")
-
+        print("Checkpoint file not found. Please run train.py first.")

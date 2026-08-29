@@ -1,46 +1,46 @@
 # MILM (Lightweight Transformer Decoder-Only Language Model)
 
-PyTorch 기반의 경량 디코더 전용(Decoder-Only) 트랜스포머 언어 모델 구현체입니다. 현대적인 LLM 아키텍처(Pre-LN, Scaled Dot-Product Attention/FlashAttention, Weight Tying 등)와 학습/추론 최적화 기법, 포괄적인 평가 지표 체계(PPL, BLEU, ROUGE-L, 다중 온도 벤치마크) 및 NVIDIA NVTX 기반 GPU 연산 프로파일링 체계를 내장하고 있습니다.
+A clean, modern, and lightweight PyTorch implementation of a Decoder-Only Transformer language model. Designed for LLM study, educational experimentation, and performance profiling, MILM incorporates modern LLM architecture practices (Pre-LN, Scaled Dot-Product Attention / FlashAttention, Weight Tying, Fused QKV), training & inference optimizations, comprehensive quantitative & qualitative evaluation metrics (PPL, BLEU-4, ROUGE-L, multi-temperature benchmarks), and built-in PyTorch / NVIDIA NVTX profiling hooks.
 
 ---
 
-## 주요 특징 (Key Features)
+## Key Features
 
-- **현대적 트랜스포머 아키텍처**:
-  - **Pre-Layer Normalization (Pre-LN)** 및 Residual Connection 구조로 깊은 네트워크에서의 학습 안정성 확보
-  - `torch.nn.functional.scaled_dot_product_attention`을 통한 C++/CUDA 하드웨어 가속 Attention (FlashAttention-2 / Memory-Efficient Attention 지원)
-  - 입력 임베딩(Token Embedding)과 출력 투영층(LM Head) 간 **Weight Tying** 적용으로 파라미터 절약 및 표현력 증대
-  - Query, Key, Value를 단일 선형 계층으로 일괄 계산하는 **Fused QKV Projection**
-  - GELU 활성화 함수 기반 FeedForward Network (FFN)
-- **학습 파이프라인 최적화**:
-  - Cosine Annealing with Linear Warmup 학습률 스케줄러
-  - Automatic Mixed Precision (`torch.autocast` / `GradScaler`, FP16) 지원
-  - `torch.compile` (PyTorch 2.0+) 커널 퓨전 및 Fused AdamW 옵티마이저 지원
-  - Gradient Clipping (`max_norm=1.0`)을 통한 기울기 폭주 방지
-  - Host-to-Device 비동기 전송 (`non_blocking=True`)
-- **고급 디코딩 & 추론 엔진**:
-  - Temperature Scaling, Top-K Filtering, Top-P (Nucleus) Filtering 지원
-  - 텍스트 생성 품질 개선을 위한 Repetition Penalty (반복 페널티) 내장
-- **포괄적인 정량/정성 평가 도구**:
-  - Cross-Entropy Loss & Perplexity (PPL) 계산
-  - n-gram 기반 BLEU-4 및 LCS 기반 ROUGE-L 유사도 평가
-  - 다중 Temperature 설정에 따른 텍스트 생성 및 n-gram 반복률(Repetition Rate) 분석 벤치마크
-- **정밀 GPU 프로파일링 (NVTX)**:
-  - 모델 연산, 학습 스텝, 데이터 전송, 추론 및 평가 전 과정에 NVTX Range 계층 태깅 지원 (Nsight Systems / Compute 호환)
+- **Modern Transformer Architecture**:
+  - **Pre-Layer Normalization (Pre-LN)** with clean residual connections for stable deep network optimization.
+  - Accelerated attention via `torch.nn.functional.scaled_dot_product_attention` (supporting FlashAttention-2 and Memory-Efficient Attention kernels).
+  - **Weight Tying** between Token Embedding and LM Head projection to reduce parameters and improve generalization.
+  - **Fused QKV Projection** to compute Query, Key, and Value representations in a single matrix multiplication.
+  - FeedForward Network (FFN) with GELU activation.
+- **Optimized Training Pipeline**:
+  - Cosine Annealing with Linear Warmup learning rate schedule.
+  - Automatic Mixed Precision (`torch.autocast` / `GradScaler`, FP16) support.
+  - PyTorch 2.0+ `torch.compile` kernel fusion and fused AdamW optimizer support.
+  - Gradient Clipping (`max_norm=1.0`) to stabilize gradient dynamics.
+  - Non-blocking Host-to-Device asynchronous memory transfers (`non_blocking=True`).
+- **Advanced Decoding & Inference Engine**:
+  - Temperature Scaling, Top-K Filtering, and Top-P (Nucleus) Sampling.
+  - Built-in Repetition Penalty to prevent repetitive text generation loops.
+- **Comprehensive Evaluation Harness**:
+  - Cross-Entropy Loss & Perplexity (PPL) calculation.
+  - Character / n-gram based BLEU-4 and Longest Common Subsequence (LCS) based ROUGE-L similarity metrics.
+  - Benchmark suite for evaluating multi-temperature generation and n-gram repetition rates.
+- **Hierarchical Profiling Hooks (PyTorch Profiler & NVTX)**:
+  - Granular range markers tagged across model forward passes, backward passes, H2D memory transfers, inference steps, and evaluation passes (compatible with PyTorch Profiler, Chrome Tracing, Perfetto, and NVIDIA Nsight Systems / Compute).
 
 ---
 
-## 모델 아키텍처 (Architecture Diagram)
+## Architecture Diagram
 
 ```mermaid
 flowchart TB
-    In["입력 토큰 ID (B, T)"] --> Emb["Token Embedding + Positional Embedding\n(Weight Tying with LM Head)"]
+    In["Input Token IDs (B, T)"] --> Emb["Token Embedding + Positional Embedding\n(Weight Tying with LM Head)"]
     Emb --> Drop["Dropout"]
     
-    subgraph Blocks["TransformerBlock x 6 (Pre-LN 구조)"]
+    subgraph Blocks["TransformerBlock x 6 (Pre-LN Structure)"]
         direction TB
         BlockIn["Block Input"] --> LN1["LayerNorm 1"]
-        LN1 --> QKV["QKV 단일 Linear Projection (d_model → 3*d_model)"]
+        LN1 --> QKV["Fused QKV Linear Projection (d_model → 3*d_model)"]
         QKV --> SDPA["F.scaled_dot_product_attention (Causal Mask / FlashAttention)"]
         SDPA --> OutProj["Output Projection"]
         BlockIn --> Add1["Residual Connection (+)"]
@@ -55,81 +55,81 @@ flowchart TB
     Drop --> Blocks
     Blocks --> FinalLN["Final LayerNorm"]
     FinalLN --> LMHead["LM Head (Linear: d_model → vocab_size)"]
-    LMHead --> Logits["출력 로짓 (B, T, vocab_size)"]
+    LMHead --> Logits["Output Logits (B, T, vocab_size)"]
 ```
 
 ---
 
-## 디렉토리 구조 (Directory Structure)
+## Directory Structure
 
 ```text
 milm/
-├── src/                          # 애플리케이션 코어 패키지 (Flat 레이아웃)
-│   ├── __init__.py               # 패키지 공용 모듈 익스포트
-│   ├── config.py                 # ModelConfig, TrainConfig 및 YAML 설정 로더
+├── src/                          # Core application package (flat layout)
+│   ├── __init__.py               # Package export module
+│   ├── config.py                 # ModelConfig, TrainConfig & YAML loader
 │   ├── model.py                  # MiniLLM, TransformerBlock, CausalSelfAttention, FeedForward
 │   ├── dataset.py                # CharTokenizer, TextDataset, create_dataloaders
-│   ├── train.py                  # 모델 학습 코어 파이프라인
-│   ├── infer.py                  # 자동회귀 텍스트 생성 추론 엔진
-│   └── evaluate.py               # PPL, BLEU-4, ROUGE-L 정량/정성 평가 엔진
-├── tests/                        # PyTest 기반 단위/통합 테스트 스위트
+│   ├── train.py                  # Core training pipeline
+│   ├── infer.py                  # Autoregressive generation inference engine
+│   └── evaluate.py               # PPL, BLEU-4, ROUGE-L evaluation engine
+├── tests/                        # PyTest unit and integration test suite
 │   ├── __init__.py
-│   ├── test_config.py            # 설정 로딩, YAML 파싱 및 기본값 검증
-│   ├── test_model.py             # 모델 Forward Pass Shape, Weight Tying 검증
-│   ├── test_dataset.py           # CharTokenizer 인코딩/디코딩, TextDataset 검증
-│   └── test_evaluate.py          # BLEU-4, ROUGE-L, Perplexity 계산 검증
-├── docs/                         # 프로젝트 심층 분석 및 로드맵 문서
-│   ├── ROADMAP.md                # 단계별 개선 과제 및 아키텍처 로드맵
-│   ├── TRAINING_REPORT.md        # 모델 학습 결과, 손실 함수 추이 및 과적합 분석 보고서
-│   └── AGENTS.md                 # AI 에이전트 및 개발자를 위한 가이드라인
-├── scripts/                      # 자동화, CLI 실행 및 GPU 프로파일링 유틸리티
-│   ├── train.py                  # 모델 학습 CLI 런처
-│   ├── infer.py                  # 텍스트 생성 추론 CLI 런처
-│   ├── evaluate.py               # 성능 평가 CLI 런처
-│   └── profile.sh                # Nsight Systems / Compute GPU 프로파일링 자동화 스크립트
-├── checkpoints/                  # 최적 가중치(best_model.pt) 및 토크나이저 아티팩트 (Git 무시)
-├── data/                         # 학습용 텍스트 코퍼스 데이터 (Git 무시)
-├── config.yaml                   # 로컬 모델/학습 하이퍼파라미터 설정 파일
-├── config.yaml.template          # 설정 파일 템플릿 (버전 관리 대상)
-├── pyproject.toml                # 패키지 메타데이터 및 빌드 설정 (pip install -e .)
-├── README.md                     # 프로젝트 메인 소개 및 가이드 문서
-├── AGENTS.md                     # 프로젝트 루트 AI 에이전트 규칙
-└── .gitignore                    # Git 추적 제외 규칙
+│   ├── test_config.py            # Configuration loading & YAML verification
+│   ├── test_model.py             # Forward pass shapes & weight tying verification
+│   ├── test_dataset.py           # CharTokenizer encoding/decoding & dataset verification
+│   └── test_evaluate.py          # BLEU-4, ROUGE-L & Perplexity computation verification
+├── docs/                         # In-depth analysis & roadmap documentation
+│   ├── ROADMAP.md                # Architectural roadmap & improvement proposals
+│   ├── TRAINING_REPORT.md        # Training report, loss curves & overfitting analysis
+│   └── AGENTS.md                 # Agent guidelines
+├── scripts/                      # Automation, CLI launchers & GPU profiling scripts
+│   ├── train.py                  # Model training CLI launcher
+│   ├── infer.py                  # Text generation inference CLI launcher
+│   ├── evaluate.py               # Performance evaluation CLI launcher
+│   └── profile.sh                # Nsight Systems / Compute profiling script
+├── checkpoints/                  # Best model checkpoint & tokenizer artifact (Git-ignored)
+├── data/                         # Training text corpora (Git-ignored)
+├── config.yaml                   # Local model and training hyperparameter configuration
+├── config.yaml.template          # Configuration template (tracked in Git)
+├── pyproject.toml                # Package metadata and build config (pip install -e .)
+├── README.md                     # Main repository introduction and usage guide
+├── AGENTS.md                     # Root AI agent rules and guidelines
+└── .gitignore                    # Git ignore rules
 ```
 
 ---
 
-## 모듈별 상세 설명
+## Module Overview
 
-| 구분 | 파일/경로 | 설명 |
+| Category | File / Path | Description |
 | :--- | :--- | :--- |
-| **코어 애플리케이션 (`src/`)** | `src/config.py` | `config.yaml` 파싱 및 `ModelConfig`, `TrainConfig` Dataclass 관리 |
-| | `src/model.py` | Pre-LN, Fast Attention(SDPA), Weight Tying, Fused QKV Decoder-Only 모델 |
-| | `src/dataset.py` | `CharTokenizer` 어휘 사전 직렬화 및 Next-Token Prediction 시퀀스 생성 |
-| | `src/train.py` | Cosine Annealing, FP16 AMP 학습 및 검증 기반 최적 가중치 저장 |
-| | `src/infer.py` | Top-k, Top-p, Repetition Penalty 기반 자동회귀 텍스트 생성 엔진 |
-| | `src/evaluate.py` | PPL, BLEU-4, ROUGE-L 및 다중 온도 프롬프트 벤치마크 평가 엔진 |
-| **테스트 스위트 (`tests/`)** | `tests/test_*.py` | 설정 로드, 모델 순전파/가중치 공유, 토크나이저, 평가 지표 PyTest 검증 |
-| **자동화 스크립트 (`scripts/`)** | `scripts/train.py` | 모델 학습 CLI 진입점 스크립트 |
-| | `scripts/infer.py` | 대화형 텍스트 생성 CLI 추론 스크립트 |
-| | `scripts/evaluate.py` | 정량/정성 평가 종합 실행 스크립트 |
-| | `scripts/profile.sh` | Nsight Systems (`nsys`) 및 Nsight Compute (`ncu`) 원클릭 프로파일링 |
-| **문서 (`docs/`)** | `docs/ROADMAP.md` | BPE 토크나이저, KV Cache, RoPE, RMSNorm/SwiGLU 등 로드맵 |
-| | `docs/TRAINING_REPORT.md` | Harry Potter 코퍼스 기준 10 에포크 학습 결과 및 과적합 분석 |
+| **Core Package (`src/`)** | `src/config.py` | Configuration management dataclasses (`ModelConfig`, `TrainConfig`) and YAML I/O |
+| | `src/model.py` | Decoder-Only Transformer with Pre-LN, Fast Attention (SDPA), Weight Tying, and Fused QKV |
+| | `src/dataset.py` | `CharTokenizer` serialization and autoregressive next-token dataset slicing |
+| | `src/train.py` | Training pipeline with Cosine Annealing, FP16 AMP, and best-checkpoint saving |
+| | `src/infer.py` | Autoregressive generation engine with Top-k, Top-p, and Repetition Penalty |
+| | `src/evaluate.py` | Evaluation suite for PPL, BLEU-4, ROUGE-L, and multi-temperature benchmarking |
+| **Test Suite (`tests/`)** | `tests/test_*.py` | PyTest tests for config loading, forward pass shapes, tokenizer, and metrics |
+| **CLI Launchers (`scripts/`)** | `scripts/train.py` | CLI entry point for model training |
+| | `scripts/infer.py` | Interactive CLI for text generation |
+| | `scripts/evaluate.py` | Comprehensive quantitative and qualitative evaluation CLI |
+| | `scripts/profile.sh` | One-click profiling runner for Nsight Systems (`nsys`) and Nsight Compute (`ncu`) |
+| **Documentation (`docs/`)** | `docs/ROADMAP.md` | Architectural recommendations: BPE tokenizer, KV Cache, RoPE, RMSNorm/SwiGLU |
+| | `docs/TRAINING_REPORT.md` | 10-epoch training results, loss curves, and overfitting analysis |
 
 ---
 
-## 기본 설정 (Default Hyperparameters)
+## Default Hyperparameters
 
 ```yaml
 # config.yaml
 model:
-  vocab_size: 256   # 데이터 기반 동적 결정 (예: 105)
-  seq_len: 128      # 최대 문맥 길이 (Context Window)
-  d_model: 256      # 임베딩 / 히든 차원
-  num_heads: 8      # Multi-Head Attention Head 수 (Head Dim = 32)
-  num_layers: 6     # Transformer Block 레이어 수
-  d_ff: 1024        # FFN 내부 확장 차원 (4 * d_model)
+  vocab_size: 256   # Dynamically updated from dataset (e.g., 105)
+  seq_len: 128      # Maximum context window length
+  d_model: 256      # Embedding and hidden dimension
+  num_heads: 8      # Number of attention heads (Head Dim = 32)
+  num_layers: 6     # Number of Transformer blocks
+  d_ff: 1024        # FFN inner expansion dimension (4 * d_model)
   dropout: 0.1
 
 train:
@@ -148,76 +148,76 @@ train:
 
 ---
 
-## 시작하기 (Getting Started)
+## Getting Started
 
-### 1. 환경 준비 및 패키지 설치
-Python 3.8 이상 및 PyTorch가 설치되어 있어야 합니다.
+### 1. Environment Setup & Installation
+Requires Python 3.8 or higher and PyTorch.
 
 ```bash
-# 가상환경 활성화 (필요 시)
+# Activate virtual environment (if applicable)
 source .venv/bin/activate
 
-# 의존성 설치 (개발 모드)
+# Install dependencies in editable mode
 pip install -e .
 ```
 
-### 2. 단위 테스트 실행 (Tests)
+### 2. Run Tests
 ```bash
 pytest -v tests/
 ```
 
-### 3. 모델 학습 (Training)
+### 3. Train the Model
 ```bash
 python scripts/train.py
 ```
-- 학습이 완료되면 `checkpoints/` 디렉토리에 최적 모델 체크포인트(`best_model.pt`)와 어휘 사전(`tokenizer.json`)이 저장됩니다.
+- Upon completion, the best checkpoint (`best_model.pt`) and tokenizer (`tokenizer.json`) are saved to `checkpoints/`.
 
-### 4. 텍스트 추론 및 생성 (Inference)
+### 4. Text Generation (Inference)
 ```bash
 python scripts/infer.py --prompt "Harry looked at " --temp 0.7 --tokens 150
 ```
-- 프롬프트를 입력받아 자기회귀(Autoregressive) 방식으로 다음 토큰들을 샘플링하여 텍스트를 완성합니다.
+- Generates text autoregressively starting from the prompt.
 
-### 5. 모델 성능 평가 (Evaluation)
+### 5. Evaluate Model Performance
 ```bash
 python scripts/evaluate.py
 ```
-- Perplexity (PPL), BLEU-4, ROUGE-L 지표 및 Temperature별 생성 결과를 종합 평가합니다.
+- Computes Perplexity (PPL), BLEU-4, ROUGE-L, and evaluates outputs across temperature settings.
 
 ---
 
-#### ⚡ 프로파일링 및 성능 분석 (PyTorch Profiler & Performance Tracing)
+### ⚡ Profiling & Performance Tracing (PyTorch Profiler & NVTX)
 
-코드베이스 전반에 **PyTorch 통합 프로파일러(`torch.profiler.record_function`)** 마커가 내장되어 있어, macOS(CPU/MPS), Linux, Windows, NVIDIA GPU 등 모든 환경에서 추가 의존성 없이 레이어별 연산 시간, 텐서 전송 병목, 메모리 사용량을 정밀 분석할 수 있습니다.
+The codebase includes built-in **PyTorch Profiler (`torch.profiler.record_function`)** markers, enabling layer-by-layer compute breakdown, host-to-device transfer latency tracking, and memory profiling across macOS (CPU/MPS), Linux, Windows, and NVIDIA GPU environments without external dependencies.
 
-### 1. 프로파일러 계층 구조 (Profiler Range Hierarchy)
+#### 1. Profiler Range Hierarchy
 
-* **모델 아키텍처 (`src/model.py`)**:
+* **Model Architecture (`src/model.py`)**:
   * `MiniLLM::forward`
-    * `Embedding_PosEncoding`: 임베딩 및 Positional Encoding 연산
-    * `Block_{0..N}`: 각 트랜스포머 블록 레이어
+    * `Embedding_PosEncoding`: Embedding and positional encoding computation
+    * `Block_{0..N}`: Individual Transformer blocks
       * `PreLN1_SelfAttention` -> `CausalSelfAttention` (`QKV_Projection`, `QKV_Reshape`, `FlashAttention_SDPA`, `Out_Projection`)
       * `PreLN2_FeedForward` -> `FeedForward`
-    * `Final_LayerNorm`: 최종 레이어 정규화
-    * `LM_Head`: 최종 로짓 프로젝션
-* **학습 파이프라인 (`src/train.py`)**:
+    * `Final_LayerNorm`: Final layer normalization
+    * `LM_Head`: Final logit projection
+* **Training Pipeline (`src/train.py`)**:
   * `Epoch_{i}` -> `Train_Step_{step}`
-    * `H2D_Transfer`: CPU to GPU 텐서 비동기 전송
+    * `H2D_Transfer`: CPU to GPU asynchronous tensor transfers
     * `Forward_Pass` / `Loss_Calculation`
-    * `Backward_Pass`: 역전파 기울기 계산
-    * `Optimizer_Step`: Grad Scaler 언스케일링, Gradient Clipping 및 가중치 업데이트
+    * `Backward_Pass`: Backpropagation gradient computation
+    * `Optimizer_Step`: GradScaler unscaling, gradient clipping, and parameter updates
   * `Validation_Epoch` -> `Val_Step_{step}` (`Val_H2D_Transfer`, Forward)
-  * `Save_Checkpoint`: 모델 가중치 직렬화
-* **추론 및 평가 (`src/infer.py`, `src/evaluate.py`)**:
+  * `Save_Checkpoint`: Checkpoint serialization
+* **Inference & Evaluation (`src/infer.py`, `src/evaluate.py`)**:
   * `LLM_Generate` -> `Generate_Step_{step}` (`Model_Forward`, `Repetition_Penalty`, `Sampling_TopK_TopP`)
   * `Eval::Perplexity`, `Eval::Similarity`, `Eval::Benchmark_Suite`
 
 ---
 
-### 2. 프로파일링 실행 방법
+#### 2. Running Profiling
 
-#### 🔹 PyTorch 통합 프로파일러 활성화
-`config.yaml`에서 프로파일러 설정을 켜고 학습을 실행합니다:
+##### 🔹 Enable PyTorch Integrated Profiler
+Enable profiling in `config.yaml` and run training:
 ```yaml
 train:
   profile: true
@@ -225,12 +225,13 @@ train:
 ```
 
 ```bash
-milm-train
+python scripts/train.py
 ```
 
-#### 🔹 결과 시각화
-* **Chrome Tracing / Perfetto**: 브라우저에서 `chrome://tracing` 또는 [ui.perfetto.dev](https://ui.perfetto.dev)에 접속한 뒤 `profiler_logs/`에 생성된 `.json` 트레이스 파일을 드래그앤드롭하여 시각화합니다.
+##### 🔹 Visualizing Results
+* **Chrome Tracing / Perfetto**: Open `chrome://tracing` or [ui.perfetto.dev](https://ui.perfetto.dev) in your browser and drag-and-drop the generated `.json` trace file from `profiler_logs/`.
 * **TensorBoard**:
   ```bash
   tensorboard --logdir=profiler_logs
   ```
+

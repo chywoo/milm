@@ -6,24 +6,25 @@ import torch
 
 @dataclass
 class ModelConfig:
-    """트랜스포머 모델 아키텍처 하이퍼파라미터"""
-    vocab_size: int = 256         # 문자 집합 또는 토큰 수 (동적 설정 가능)
-    seq_len: int = 128            # 최대 문맥 길이 (Context Window)
-    d_model: int = 256            # 임베딩 및 히든 차원
-    num_heads: int = 8            # Multi-Head 수
-    num_layers: int = 6           # 트랜스포머 블록 레이어 수
-    d_ff: int = 1024              # FFN 내부 확장 차원 (일반적으로 4 * d_model)
-    dropout: float = 0.1          # 드롭아웃 비율
+    """Transformer model architecture hyperparameters."""
+    vocab_size: int = 256         # Vocabulary size / character count (dynamically updated)
+    seq_len: int = 128            # Maximum context length (Context Window)
+    d_model: int = 256            # Embedding and hidden dimension
+    num_heads: int = 8            # Number of attention heads
+    num_layers: int = 6           # Number of Transformer block layers
+    d_ff: int = 1024              # FFN inner expansion dimension (typically 4 * d_model)
+    dropout: float = 0.1          # Dropout rate
+    emit_nvtx: bool = False       # Enable NVTX marker emission for profiler
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ModelConfig":
-        """딕셔너리로부터 유효한 필드만 추출하여 ModelConfig 인스턴스 생성"""
+        """Create a ModelConfig instance from a dictionary filtering valid fields."""
         if not data:
             return cls()
         valid_keys = {f.name for f in fields(cls)}
         filtered = {k: v for k, v in data.items() if k in valid_keys and v is not None}
         
-        # 타입 캐스팅
+        # Type casting
         if "vocab_size" in filtered:
             filtered["vocab_size"] = int(filtered["vocab_size"])
         if "seq_len" in filtered:
@@ -38,16 +39,18 @@ class ModelConfig:
             filtered["d_ff"] = int(filtered["d_ff"])
         if "dropout" in filtered:
             filtered["dropout"] = float(filtered["dropout"])
+        if "emit_nvtx" in filtered:
+            filtered["emit_nvtx"] = bool(filtered["emit_nvtx"])
 
         return cls(**filtered)
 
     def to_dict(self) -> Dict[str, Any]:
-        """ModelConfig 객체를 딕셔너리로 변환"""
+        """Convert ModelConfig instance to dictionary."""
         return asdict(self)
 
 
 def get_default_device() -> str:
-    """사용 가능한 최적의 하드웨어 가속 디바이스 자동 감지"""
+    """Auto-detect optimal hardware acceleration device."""
     if torch.cuda.is_available():
         return "cuda"
     elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -57,8 +60,8 @@ def get_default_device() -> str:
 
 @dataclass
 class TrainConfig:
-    """학습 및 인프라 최적화 설정"""
-    data_dir: str = "data"        # 훈련 텍스트 파일들이 위치한 디렉토리
+    """Training and infrastructure optimization configuration."""
+    data_dir: str = "data"        # Directory containing training text files
     checkpoint_dir: str = "checkpoints"
     checkpoint_name: str = "best_model.pt"
     
@@ -68,14 +71,15 @@ class TrainConfig:
     min_lr: float = 5e-5
     warmup_steps: int = 100
     weight_decay: float = 0.01
-    grad_clip: float = 1.0        # 기울기 폭주 방지 클리핑
+    grad_clip: float = 1.0        # Gradient clipping max norm
     
     device: str = "auto"          # "auto", "cuda", "mps", "cpu"
-    use_amp: bool = True          # Automatic Mixed Precision 활성화
-    compile_model: bool = True    # PyTorch 2.0+ torch.compile 활성화 (CUDA 전용)
-    val_split: float = 0.1        # 검증 데이터셋 비율
-    profile: bool = False         # PyTorch 통합 프로파일러 활성화 여부
-    profile_dir: str = "profiler_logs" # 프로파일링 트레이스 저장 디렉토리
+    use_amp: bool = True          # Enable Automatic Mixed Precision
+    compile_model: bool = True    # Enable PyTorch 2.0+ torch.compile (CUDA only)
+    val_split: float = 0.1        # Validation dataset split ratio
+    profile: bool = False         # Enable PyTorch Profiler
+    profile_dir: str = "profiler_logs" # Directory for profiling traces
+    emit_nvtx: bool = False       # Enable NVTX marker emission for profiler
 
     def __post_init__(self):
         if self.device == "auto" or not self.device:
@@ -83,13 +87,13 @@ class TrainConfig:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TrainConfig":
-        """딕셔너리로부터 유효한 필드만 추출하여 TrainConfig 인스턴스 생성"""
+        """Create a TrainConfig instance from a dictionary filtering valid fields."""
         if not data:
             return cls()
         valid_keys = {f.name for f in fields(cls)}
         filtered = {k: v for k, v in data.items() if k in valid_keys and v is not None}
 
-        # 타입 캐스팅
+        # Type casting
         if "batch_size" in filtered:
             filtered["batch_size"] = int(filtered["batch_size"])
         if "epochs" in filtered:
@@ -114,20 +118,22 @@ class TrainConfig:
             filtered["profile"] = bool(filtered["profile"])
         if "profile_dir" in filtered:
             filtered["profile_dir"] = str(filtered["profile_dir"])
+        if "emit_nvtx" in filtered:
+            filtered["emit_nvtx"] = bool(filtered["emit_nvtx"])
         if "device" in filtered and filtered["device"] == "auto":
             filtered["device"] = get_default_device()
 
         return cls(**filtered)
 
     def to_dict(self) -> Dict[str, Any]:
-        """TrainConfig 객체를 딕셔너리로 변환"""
+        """Convert TrainConfig instance to dictionary."""
         return asdict(self)
 
 
 def load_config(config_path: str = "config.yaml") -> Tuple[ModelConfig, TrainConfig]:
     """
-    YAML 파일로부터 ModelConfig 및 TrainConfig를 로드합니다.
-    config.yaml 파일이 존재하지 않는 경우 기본 설정을 반환합니다.
+    Load ModelConfig and TrainConfig from a YAML file.
+    Returns default configurations if the file does not exist.
     """
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
@@ -140,12 +146,12 @@ def load_config(config_path: str = "config.yaml") -> Tuple[ModelConfig, TrainCon
         t_cfg = TrainConfig.from_dict(train_data)
         return m_cfg, t_cfg
     
-    # 설정 파일이 없을 경우 기본값 생성
+    # Return defaults if configuration file does not exist
     return ModelConfig(), TrainConfig()
 
 
 def save_config(m_cfg: ModelConfig, t_cfg: TrainConfig, config_path: str = "config.yaml"):
-    """ModelConfig 및 TrainConfig를 YAML 파일로 저장합니다."""
+    """Save ModelConfig and TrainConfig to a YAML file."""
     data = {
         "model": m_cfg.to_dict(),
         "train": t_cfg.to_dict()

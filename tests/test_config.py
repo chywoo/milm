@@ -24,6 +24,7 @@ def test_model_config_from_dict():
         "num_layers": "2",
         "d_ff": "512",
         "dropout": "0.2",
+        "emit_nvtx": True,
         "unknown_key": "ignore_me"
     }
     cfg = ModelConfig.from_dict(data)
@@ -34,6 +35,7 @@ def test_model_config_from_dict():
     assert cfg.num_layers == 2
     assert cfg.d_ff == 512
     assert cfg.dropout == 0.2
+    assert cfg.emit_nvtx is True
 
 def test_train_config_from_dict():
     data = {
@@ -41,7 +43,8 @@ def test_train_config_from_dict():
         "epochs": "5",
         "learning_rate": "1e-3",
         "device": "cpu",
-        "use_amp": False
+        "use_amp": False,
+        "emit_nvtx": True
     }
     cfg = TrainConfig.from_dict(data)
     assert cfg.batch_size == 32
@@ -49,6 +52,7 @@ def test_train_config_from_dict():
     assert cfg.learning_rate == 0.001
     assert cfg.device == "cpu"
     assert cfg.use_amp is False
+    assert cfg.emit_nvtx is True
 
 def test_config_save_and_load():
     m_cfg = ModelConfig(vocab_size=100, seq_len=64, d_model=128)
