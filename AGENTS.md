@@ -12,53 +12,66 @@ If specific modules or documentation (e.g., `README.md`, `ROADMAP.md`) state mor
 
 ## Development Guidelines
 
-### 1. Think Before Coding
-**Do not guess, do not hide ambiguity, and present trade-offs clearly.**
+## 1. Think Before Coding
 
-Before implementing changes:
-- State assumptions explicitly. If anything is uncertain, ask first.
-- If multiple interpretations exist, present alternatives rather than choosing arbitrarily.
-- If a simpler approach exists, advise accordingly and propose alternatives.
-- If something is unclear, pause work and ask focused questions.
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-### 2. Simplicity First
-**Write only the minimum code necessary to solve the problem; avoid speculative engineering.**
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-- Do not add features outside the requested scope.
-- Avoid introducing unnecessary abstraction layers for single-use code.
-- Do not add unrequested "flexibility" or "configurability."
-- Avoid excessive error handling for impossible scenarios.
-- If a 200-line solution can be written cleanly in 50 lines, refactor to 50 lines.
-- Ask yourself: *"Would a senior engineer find this overly complex?"* If yes, simplify it.
+## 2. Simplicity First
 
-### 3. Surgical Changes
-**Modify only what is needed, and clean up side effects caused by your changes.**
+**Minimum code that solves the problem. Nothing speculative.**
 
-- **When editing existing code**:
-  - Do not arbitrarily "improve" unrelated adjacent code, comments, or formatting.
-  - Do not refactor functional code without a clear reason.
-  - Respect existing repository style even if it differs from personal preference.
-  - If you encounter dead code unrelated to the task, mention it rather than deleting it without prompt.
-- **When your changes cause unused code**:
-  - Remove imports, variables, or functions rendered obsolete by your changes.
-  - Do not remove legacy unused code unrelated to your task.
-- **Verification Criterion**: Every line changed must trace back directly to user requirements.
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-### 4. Goal-Driven Execution
-**Define success criteria and iterate through verification loops until satisfied.**
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-- Formalize tasks into verifiable goals:
-  - "Add validation" -> "Write a test for invalid input and make it pass."
-  - "Fix a bug" -> "Write a reproduction test and make it pass."
-  - "Refactor X" -> "Verify all tests continue to pass before and after refactoring."
-- For multi-step tasks, establish a concise plan:
-  ```text
-  1. [Step 1] -> Verification: [Check item]
-  2. [Step 2] -> Verification: [Check item]
-  3. [Step 3] -> Verification: [Check item]
-  ```
-- Clear and strict criteria enable autonomous verification loops.
+## 3. Surgical Changes
 
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+## 5. Tools Execution
+### GIT
+- Do not request a Git commit.
+- Do not perform Git operations such as “commit,” “update,” “push,” “pull,” “restore,” “reset,” or “restore” without permission. 
 ---
 
 ## Environment Setup
