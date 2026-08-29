@@ -5,9 +5,9 @@ import torch.profiler
 from torch.profiler import record_function
 
 try:
-    from .config import ModelConfig, load_config
+    from .config import ModelConfig
 except (ImportError, ValueError):
-    from config import ModelConfig, load_config
+    from config import ModelConfig
 
 class CausalSelfAttention(nn.Module):
     """Hardware-accelerated (FlashAttention / SDPA) Multi-Head Attention."""
@@ -134,25 +134,4 @@ class MiniLLM(nn.Module):
                 logits = self.lm_head(x)
 
             return logits
-
-
-if __name__ == "__main__":
-    m_cfg, t_cfg = load_config("config.yaml")
-    model = MiniLLM(m_cfg).to(t_cfg.device)
-    dummy_idx = torch.randint(0, m_cfg.vocab_size, (2, m_cfg.seq_len), device=t_cfg.device)
-
-    activities = [torch.profiler.ProfilerActivity.CPU]
-    if t_cfg.device == "cuda":
-        activities.append(torch.profiler.ProfilerActivity.CUDA)
-
-    use_nvtx = m_cfg.emit_nvtx and torch.cuda.is_available()
-    with torch.autograd.profiler.emit_nvtx(enabled=use_nvtx):
-        with torch.profiler.profile(
-            activities=activities,
-            record_shapes=True,
-            with_stack=True,
-        ) as prof:
-            out = model(dummy_idx)
-
-    print(f"MiniLLM forward pass successful: output_shape={out.shape}, emit_nvtx={m_cfg.emit_nvtx} (active={use_nvtx})")
 

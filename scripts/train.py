@@ -7,6 +7,8 @@ Usage: python scripts/train.py [config_path]
 import sys
 import os
 from pathlib import Path
+import torch
+import torch.profiler
 
 # Add project root and src directory to sys.path
 ROOT_DIR = Path(__file__).resolve().parent.parent
@@ -24,7 +26,20 @@ def main():
     
     # Set working directory to project root
     os.chdir(ROOT_DIR)
-    train(m_cfg, t_cfg)
+
+    activities = [torch.profiler.ProfilerActivity.CPU]
+    if torch.cuda.is_available():
+        activities.append(torch.profiler.ProfilerActivity.CUDA)
+
+    use_nvtx = t_cfg.emit_nvtx and torch.cuda.is_available()
+    with torch.autograd.profiler.emit_nvtx(enabled=use_nvtx):
+        with torch.profiler.profile(
+            activities=activities,
+            record_shapes=True,
+            with_stack=True,
+        ) as prof:
+            train(m_cfg, t_cfg)
 
 if __name__ == "__main__":
     main()
+
