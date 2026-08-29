@@ -138,48 +138,48 @@ def train(m_cfg: ModelConfig, t_cfg: TrainConfig, on_step_end: Optional[Callable
                     if on_step_end is not None:
                         on_step_end(step)
 
-                # Validation loop
-                with record_function("Validation_Epoch"):
-                    model.eval()
-                    val_loss = 0.0
-                    with torch.no_grad():
-                        for val_step, (x, y) in enumerate(val_loader):
-                            with record_function(f"Val_Step_{val_step}"):
-                                with record_function("Val_H2D_Transfer"):
-                                    x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                                    y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
-                                with torch.autocast(
-                                    device_type="cuda" if t_cfg.device == "cuda" else "cpu",  
-                                    dtype=torch.float16, 
-                                    enabled=t_cfg.use_amp and device_type in ("cuda")
-                                ):
-                                    logits = model(x)
-                                    loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
-                                val_loss += loss.item()
-                        
-                avg_train_loss = train_loss / len(train_loader)
-                avg_val_loss = val_loss / max(1, len(val_loader))
-                elapsed = time.time() - start_time
-                
-                if epoch % 10 == 0 or epoch == 1:
-                    logging.info(
-                        f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
-                        f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
-                        f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
-                    )
+            # Validation loop
+            with record_function("Validation_Epoch"):
+                model.eval()
+                val_loss = 0.0
+                with torch.no_grad():
+                    for val_step, (x, y) in enumerate(val_loader):
+                        with record_function(f"Val_Step_{val_step}"):
+                            with record_function("Val_H2D_Transfer"):
+                                x = x.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                                y = y.to(t_cfg.device, non_blocking=(t_cfg.device == "cuda"))
+                            with torch.autocast(
+                                device_type="cuda" if t_cfg.device == "cuda" else "cpu",  
+                                dtype=torch.float16, 
+                                enabled=t_cfg.use_amp and device_type in ("cuda")
+                            ):
+                                logits = model(x)
+                                loss = criterion(logits.view(-1, m_cfg.vocab_size), y.view(-1))
+                            val_loss += loss.item()
+                    
+            avg_train_loss = train_loss / len(train_loader)
+            avg_val_loss = val_loss / max(1, len(val_loader))
+            elapsed = time.time() - start_time
+            
+            if epoch % 10 == 0 or epoch == 1:
+                logging.info(
+                    f"Epoch [{epoch:03d}/{t_cfg.epochs:03d}] | "
+                    f"Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f} | "
+                    f"LR: {scheduler.get_last_lr()[0]:.2e} | Time: {elapsed:.2f}s"
+                )
 
-                # Save best checkpoint
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
-                    with record_function("Save_Checkpoint"):
-                        raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
-                        ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
-                        torch.save({
-                            'model_state_dict': raw_model.state_dict(),
-                            'model_config': m_cfg,
-                            'epoch': epoch,
-                            'val_loss': best_val_loss
-                        }, ckpt_path)
+            # Save best checkpoint
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                with record_function("Save_Checkpoint"):
+                    raw_model = model._orig_mod if hasattr(model, '_orig_mod') else model
+                    ckpt_path = os.path.join(t_cfg.checkpoint_dir, t_cfg.checkpoint_name)
+                    torch.save({
+                        'model_state_dict': raw_model.state_dict(),
+                        'model_config': m_cfg,
+                        'epoch': epoch,
+                        'val_loss': best_val_loss
+                    }, ckpt_path)
 
     logging.info(f"Training complete! Best checkpoint saved at: {ckpt_path}")
 
